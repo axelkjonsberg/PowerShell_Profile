@@ -1,14 +1,4 @@
 # Region: Helper functions
-
-function Import-ModuleAndDisplayInfo {
-    param(
-        [string]$ModulePath,
-        [string]$ModuleName
-    )
-    Import-Module -Name $ModulePath -ErrorAction Stop
-    Write-Host "`nLoaded module: $($ModuleName).psm1" -ForegroundColor Green
-}
-
 function DisplayCommandInfo {
     param(
         [System.Management.Automation.CommandInfo]$Command,
@@ -57,57 +47,101 @@ function DisplayAliases {
     }
 }
 
-# Region: The profile load script
+function DisplayLoadedScriptAndModuleInfo {
+    param(
+        [string]$FullPath,
+        [string]$Type # "Module" or "Script"
+    )
 
-$customModulesPath = Join-Path -Path $PSScriptRoot -ChildPath "CustomModules"
-$commonFunctionParameters = 'Debug', 'ErrorAction', 'ErrorVariable', 'InformationAction', 'InformationVariable', 'OutBuffer', 'OutVariable', 'PipelineVariable', 'Verbose', 'WarningAction', 'WarningVariable', 'WhatIf', 'Confirm'
+    $name = [System.IO.Path]::GetFileNameWithoutExtension($FullPath)
+    Write-Host "`nLoaded $($Type): $name" -ForegroundColor Green
 
-$moduleFiles = Get-ChildItem -Path $customModulesPath -Filter *.psm1 -Recurse
-$scriptFiles = Get-ChildItem -Path $customModulesPath -Filter *.ps1 -Recurse
-
-$numberOfCustomFunctions = 0
-
-foreach ($moduleFile in $moduleFiles) {
     try {
-        $moduleFullPath = $moduleFile.FullName
-        $moduleName = [System.IO.Path]::GetFileNameWithoutExtension($moduleFullPath)
+        if ($Type -eq "Module") {
+            $moduleCommands = Get-Command -Module $moduleName -ErrorAction SilentlyContinue
+        } elseif ($Type -eq "Script") {
+            $moduleCommands = Get-Command -ErrorAction SilentlyContinue | Where-Object { $_.ScriptBlock.File -eq $FullPath }
+        }
 
-        Import-ModuleAndDisplayInfo -ModulePath $moduleFullPath -ModuleName $moduleName
-
-        $moduleCommands = Get-Command -Module $moduleName
-        foreach ($command in $moduleCommands) {
-            DisplayCommandInfo -Command $command -CommonFunctionParameters $commonFunctionParameters
-            DisplayAliases -CommandName $command.Name -ModuleName $moduleName
-            $numberOfCustomFunctions++
+        if ($moduleCommands -and $moduleCommands.Count -gt 0) {
+            foreach ($command in $moduleCommands) {
+                DisplayCommandInfo -Command $command -CommonFunctionParameters $commonFunctionParameters
+                DisplayAliases -CommandName $command.Name -ModuleName $name
+            }
+        }
+        else {
+            Write-Host "No commands found for $($Type): $name" -ForegroundColor Yellow
         }
     }
     catch {
-        Write-Host "Failed to load module: $($moduleName)" -ForegroundColor Red
+        Write-Host "Error displaying commands for $($Type): $name. Error: $_" -ForegroundColor Red
+    }
+}
+
+# End of region
+
+# Region: Load custom scripts
+
+if (-not (Test-Path variable:Global:LoadedModulesAndScripts)) {
+    $Global:LoadedModulesAndScripts = @{}
+}
+
+$customModulesPath = Join-Path -Path $PSScriptRoot -ChildPath "Custom\Modules"
+$customScriptsPath = Join-Path -Path $PSScriptRoot -ChildPath "Custom\Scripts"
+
+$commonFunctionParameters = 'Debug', 'ErrorAction', 'ErrorVariable', 'InformationAction', 'InformationVariable', 'OutBuffer', 'OutVariable', 'PipelineVariable', 'Verbose', 'WarningAction', 'WarningVariable', 'WhatIf', 'Confirm'
+
+$numberOfCustomFunctions = 0
+
+$moduleFiles = Get-ChildItem -Path $customModulesPath -Filter *.psm1 -Recurse
+foreach ($moduleFile in $moduleFiles) {
+    try {
+        $content = Get-Content $moduleFile.FullName -Head 1 -ErrorAction SilentlyContinue
+        if ($content -match "doNotLoadByDefault: true") {
+            continue
+        }
+
+        $moduleFullPath = $moduleFile.FullName
+        $moduleName = $moduleFile.BaseName
+
+        Import-Module -Name $moduleFullPath -ErrorAction Stop
+        $Global:LoadedModulesAndScripts[$moduleFullPath] = $true
+
+        DisplayLoadedScriptAndModuleInfo -FullPath $moduleFullPath -Type "Module"
+        $moduleCommands = (Get-Command | Where-Object { $_.ScriptBlock.File -eq $moduleFullPath })
+        $numberOfCustomFunctions += $moduleCommands.Count
+    }
+    catch {
+        Write-Host "Failed to load module: $moduleName" -ForegroundColor Red
         Write-Host "Error: $_" -ForegroundColor Red
     }
 }
 
+$scriptFiles = Get-ChildItem -Path $customScriptsPath -Filter *.ps1 -Recurse
 foreach ($scriptFile in $scriptFiles) {
     try {
+        $content = Get-Content $scriptFile.FullName -Head 1 -ErrorAction SilentlyContinue
+        if ($content -match "doNotLoadByDefault: true") {
+            continue
+        }
+
         $scriptFullPath = $scriptFile.FullName
         . $scriptFullPath
-        $scriptName = [System.IO.Path]::GetFileNameWithoutExtension($scriptFullPath)
-        Write-Host "`nLoaded script: $($scriptName).ps1" -ForegroundColor Green
+        $Global:LoadedModulesAndScripts[$scriptFullPath] = $true
 
-        $scriptCommands = Get-Command | Where-Object { $_.ScriptBlock.File -eq $scriptFullPath }
-        foreach ($command in $scriptCommands) {
-            DisplayCommandInfo -Command $command -CommonFunctionParameters $commonFunctionParameters
-            DisplayAliases -CommandName $command.Name -ModuleName $null
-            $numberOfCustomFunctions++
-        }
+        DisplayLoadedScriptAndModuleInfo -FullPath $scriptFullPath -Type "Script"
+        $scriptCommands = (Get-Command | Where-Object { $_.ScriptBlock.File -eq $scriptFullPath })
+        $numberOfCustomFunctions += $scriptCommands.Count
     }
     catch {
+        $scriptName = [System.IO.Path]::GetFileNameWithoutExtension($scriptFile.FullName)
         Write-Host "Failed to load script: $($scriptName)" -ForegroundColor Red
         Write-Host "Error: $_" -ForegroundColor Red
     }
 }
 
-Write-Host "`nPowerShell profile from " -NoNewline
-Write-Host $PROFILE -ForegroundColor Cyan -NoNewline
-Write-Host " was loaded."
+Write-Host "`nSuccessfuly loaded PowerShell profile: " -NoNewline
+Write-Host $PROFILE -ForegroundColor Cyan
 Write-Host "Loaded $numberOfCustomFunctions custom functions."
+
+# End of region

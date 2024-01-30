@@ -1,0 +1,6 @@
+# Ignore everything
+*
+
+# But not these
+!Microsoft.PowerShell_profile.ps1
+!.gitignore
