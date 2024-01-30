@@ -4,3 +4,4 @@
 # But not these
 !Microsoft.PowerShell_profile.ps1
 !.gitignore
+!ProfileUtils.ps1
