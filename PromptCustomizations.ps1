@@ -1,26 +1,37 @@
 function Get-GitBranch {
+    param (
+        [string]$currentDirectory
+    )
+
     $gitBranch = & git rev-parse --abbrev-ref HEAD 2>$null
     if ($gitBranch) {
-        return "[$gitBranch]"
+        $repositoryPath = (& git rev-parse --show-toplevel 2>$null).Trim()
+        $repositoryName = (Split-Path -Leaf -Path $repositoryPath).Trim()
+
+        if ($repositoryName -ne $currentDirectory) {
+            return "[$gitBranch ($repositoryName)]"
+        } else {
+            return "[$gitBranch]"
+        }
     }
     return ""
 }
 
 function Prompt {
-    $currentPath = Split-Path -leaf -path (Get-Location)
-    $gitInfo = Get-GitBranch
+    $shellVersion = "PS v$($PSVersionTable.PSVersion.ToString())"
+    $currentDirectory = Split-Path -leaf -path (Get-Location)
+    $currentPath = (Get-Location).Path
+    $relativePath = $currentPath.Replace($env:USERPROFILE, "")
 
-    Write-Host -NoNewline -ForegroundColor Green "PS – "
+    $gitInfo = Get-GitBranch -currentDirectory $currentDirectory
 
-    Write-Host -NoNewline -ForegroundColor Yellow "$currentPath"
+    Write-Host -NoNewline -ForegroundColor Green "$shellVersion"
+    Write-Host -NoNewline " ~$relativePath" -ForegroundColor Yellow
 
     if ($gitInfo -ne "") {
-        Write-Host -NoNewline -ForegroundColor Green " – "
-        Write-Host -NoNewline -ForegroundColor Cyan "$gitInfo"
+        Write-Host -NoNewline -ForegroundColor Cyan " $gitInfo"
     }
 
-    Write-Host -NoNewline -ForegroundColor Green " >"
-
-    # Return an empty string to prevent double prompt
-    return " "
+    # Return a newline character to move the prompt to the next line
+    return "`n"
 }
