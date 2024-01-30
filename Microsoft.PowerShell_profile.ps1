@@ -1,4 +1,8 @@
-. "$PSScriptRoot\ProfileUtils.ps1"
+$utilsPath = Join-Path -Path $env:USERPROFILE -ChildPath "Documents\WindowsPowerShell\ProfileUtils.ps1"
+. $utilsPath
+
+$promptCustomizationsPath = Join-Path -Path $env:USERPROFILE -ChildPath "Documents\WindowsPowerShell\PromptCustomizations.ps1"
+. $promptCustomizationsPath
 
 if (-not (Test-Path variable:Global:LoadedModulesAndScripts)) {
     $Global:LoadedModulesAndScripts = @{}
