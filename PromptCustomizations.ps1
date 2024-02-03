@@ -1,5 +1,5 @@
 function Get-GitBranch {
-    param (
+    param(
         [string]$currentDirectory
     )
 
@@ -17,11 +17,11 @@ function Get-GitBranch {
     return ""
 }
 
-function Prompt {
+function prompt {
     $shellVersion = "PS v$($PSVersionTable.PSVersion.ToString())"
-    $currentDirectory = Split-Path -leaf -path (Get-Location)
+    $currentDirectory = Split-Path -Leaf -Path (Get-Location)
     $currentPath = (Get-Location).Path
-    $relativePath = $currentPath.Replace($env:USERPROFILE, "")
+    $relativePath = $currentPath.Replace($env:USERPROFILE,"")
 
     $gitInfo = Get-GitBranch -currentDirectory $currentDirectory
 

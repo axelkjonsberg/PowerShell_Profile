@@ -1,8 +1,8 @@
 $utilsPath = Join-Path -Path $env:USERPROFILE -ChildPath "Documents\WindowsPowerShell\ProfileUtils.ps1"
-. $utilsPath
+.$utilsPath
 
 $promptCustomizationsPath = Join-Path -Path $env:USERPROFILE -ChildPath "Documents\WindowsPowerShell\PromptCustomizations.ps1"
-. $promptCustomizationsPath
+.$promptCustomizationsPath
 
 if (-not (Test-Path variable:Global:LoadedModulesAndScripts)) {
     $Global:LoadedModulesAndScripts = @{}
@@ -46,7 +46,7 @@ foreach ($scriptFile in $scriptFiles) {
         }
 
         $scriptFullPath = $scriptFile.FullName
-        . $scriptFullPath
+        .$scriptFullPath
         $Global:LoadedModulesAndScripts[$scriptFullPath] = $true
 
         DisplayLoadedScriptAndModuleInfo -FullPath $scriptFullPath -Type "Script"

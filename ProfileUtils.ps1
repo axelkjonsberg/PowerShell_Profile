@@ -12,7 +12,7 @@ function DisplayParameters {
         [System.Management.Automation.CommandInfo]$Command
     )
 
-    $commonFunctionParameters = 'Debug', 'ErrorAction', 'ErrorVariable', 'InformationAction', 'ProgressAction', 'InformationVariable', 'OutBuffer', 'OutVariable', 'PipelineVariable', 'Verbose', 'WarningAction', 'WarningVariable', 'WhatIf', 'Confirm'
+    $commonFunctionParameters = 'Debug','ErrorAction','ErrorVariable','InformationAction','ProgressAction','InformationVariable','OutBuffer','OutVariable','PipelineVariable','Verbose','WarningAction','WarningVariable','WhatIf','Confirm'
     $allParameters = $Command.Parameters.Values | Where-Object { $CommonFunctionParameters -notcontains $_.Name }
 
     $mandatoryParameters = $allParameters | Where-Object { $_.Attributes.Mandatory -eq $true }
