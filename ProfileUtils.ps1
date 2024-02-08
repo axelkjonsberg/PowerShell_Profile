@@ -105,33 +105,41 @@ function Show-MenuSelection {
             [bool]$selectionComplete
         )
 
-        Clear-Host # Clear the console before redrawing the menu
+        Clear-Host
         Write-Host "Select items (use 'Up/Down' arrows to navigate, 'Space' to select, 'Enter' to finalize):"
 
         for ($i = 0; $i -lt $Items.Count; $i++) {
             $foregroundColor = if ($i -eq $currentIndex -and -not $selectionComplete) { "White" } else { "DarkGray" }
             $selectedSign = if ($i -eq $currentIndex -and -not $selectionComplete) { "<" } else { "" }
-
             $checkMark = if ($selections[$i]) { "`e[36m[x]`e[0m" } else { "[ ]" }
-            $hyphen = "-"
 
-            Write-Host -NoNewline "$hyphen $checkMark"
-            Write-Host -NoNewline $($Items[$i].Name) $selectedSign -ForegroundColor $foregroundColor
-            Write-Host
+            $displayString = "- $checkMark $($Items[$i].Name) $selectedSign"
+            Write-Host $displayString -ForegroundColor $foregroundColor
         }
     }
 
+    [console]::CursorVisible = $false
     DisplayItems -selectionComplete $false
 
     do {
         $key = [Console]::ReadKey($true)
-        switch ($key.Key) {
-            "UpArrow" { if ($currentIndex -gt 0) { $currentIndex -- } }
-            "DownArrow" { if ($currentIndex -lt $Items.Count - 1) { $currentIndex++ } }
-            "Spacebar" { $selections[$currentIndex] = -not $selections[$currentIndex] }
+        if ($key.Key -in 'UpArrow', 'DownArrow', 'Spacebar') {
+            switch ($key.Key) {
+                "UpArrow" {
+                    if ($currentIndex -gt 0) { $currentIndex-- }
+                }
+                "DownArrow" {
+                    if ($currentIndex -lt $Items.Count - 1) { $currentIndex++ }
+                }
+                "Spacebar" {
+                    $selections[$currentIndex] = -not $selections[$currentIndex]
+                }
+            }
+            DisplayItems -selectionComplete $false
         }
-        DisplayItems -selectionComplete $false
     } while ($key.Key -ne "Enter")
+
+    [console]::CursorVisible = $true
 
     $selectionComplete = $true
     DisplayItems -selectionComplete $true
