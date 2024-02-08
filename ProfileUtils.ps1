@@ -1,82 +1,233 @@
-function DisplayCommandInfo {
-    param(
-        [System.Management.Automation.CommandInfo]$Command,
-        [string[]]$CommonFunctionParameters
-    )
-    Write-Host "- $($Command.Name)" -NoNewline -ForegroundColor Yellow
-    DisplayParameters -Command $Command -CommonFunctionParameters $CommonFunctionParameters
+# Region: Internal helper functions 
+
+function Show-ModuleInfo {
+    param([string]$ModuleName)
+
+    $module = $Global:LoadedModules[$ModuleName]
+    if (-not $module) {
+        Write-Host "Module `$ModuleName` is not loaded or does not exist." -ForegroundColor Yellow
+        return
+    }
+
+    Write-Host "Module: $ModuleName (v$($module.Version))" -ForegroundColor Green
+    if($null -ne $module.Author) {
+        Write-Host "Author: $($module.Author)"
+    }
+    # Write-Host "Description: $($module.Description)"
+    if($module.ExportedCommandsAndAliases.Keys.Count -gt 0) {
+        Write-Host "Exported Commands and Aliases:"
+    }
+
+
+    foreach ($commandName in $module.ExportedCommandsAndAliases.Keys) {
+        if ($module.ExportedCommandsAndAliases[$commandName]) {
+            continue
+        }
+
+        $commandInfo = Get-Command $commandName -ErrorAction SilentlyContinue
+        if ($null -ne $commandInfo) {
+            $aliases = $module.ExportedCommandsAndAliases.Keys | Where-Object { $module.ExportedCommandsAndAliases[$_] -eq $commandName }
+            $aliasText = if ($aliases) { "`e[36m(" + ($aliases -join ', ') + ")`e[0m" } else { "" }
+
+            $displayName = "- $commandName $aliasText".Trim()
+            Write-Host $displayName -ForegroundColor Yellow -NoNewline
+            
+            if (-not $commandInfo.Parameters.Keys) {
+                Write-Host
+            }
+
+            Show-Parameters -Command $commandInfo
+            Write-Host
+        } else {
+            Write-Host "- $commandName could not retrieve command info" -ForegroundColor Red
+        }
+    }
+    Write-Host
 }
 
-function DisplayParameters {
+function Show-Parameters {
     param(
         [System.Management.Automation.CommandInfo]$Command
     )
 
     $commonFunctionParameters = 'Debug','ErrorAction','ErrorVariable','InformationAction','ProgressAction','InformationVariable','OutBuffer','OutVariable','PipelineVariable','Verbose','WarningAction','WarningVariable','WhatIf','Confirm'
-    $allParameters = $Command.Parameters.Values | Where-Object { $CommonFunctionParameters -notcontains $_.Name }
+    $allParameters = $Command.Parameters.Values | Where-Object { $commonFunctionParameters -notcontains $_.Name }
 
     $mandatoryParameters = $allParameters | Where-Object { $_.Attributes.Mandatory -eq $true }
     $optionalParameters = $allParameters | Where-Object { $_.Attributes.Mandatory -ne $true }
 
     # Display mandatory parameters first
     foreach ($param in $mandatoryParameters) {
-        $parameterName = " -" + $param.Name + " "
+        $parameterName = " -" + $param.Name
         Write-Host $parameterName -NoNewline -ForegroundColor Magenta
         Write-Host ("<" + $param.ParameterType.Name + ">") -NoNewline -ForegroundColor Gray
     }
 
     # Display optional parameters afterwards
     foreach ($param in $optionalParameters) {
-        $parameterName = " -" + $param.Name + " "
+        $parameterName = " -" + $param.Name
         Write-Host $parameterName -NoNewline -ForegroundColor DarkMagenta
         Write-Host ("<" + $param.ParameterType.Name + "?>") -NoNewline -ForegroundColor DarkGray
     }
-
-    Write-Host
 }
 
-function DisplayAliases {
+# End region
+
+# Region: Exported functions
+
+function Show-LoadedModules {
+    if ($Global:LoadedModules.Count -gt 0) {
+        Write-Host "`nLoaded Modules:" -ForegroundColor Cyan
+        foreach ($moduleName in $Global:LoadedModules.Keys) {
+            Show-ModuleInfo -ModuleName $moduleName
+        }
+    } else {
+        Write-Host "No custom modules have been loaded." -ForegroundColor Yellow
+    }
+}
+
+function Show-MenuSelection {
     param(
-        [string]$CommandName,
-        [string]$ModuleName
+        [Parameter(Mandatory = $true)][array]$Items,
+        [Parameter(Mandatory = $false)][array]$PreselectedIndices
     )
-    $aliasList = Get-Alias | Where-Object { $_.ReferencedCommand.Name -eq $CommandName -and $_.ReferencedCommand.ModuleName -eq $ModuleName }
-    if ($aliasList) {
-        foreach ($alias in $aliasList) {
-            Write-Host "  Has alias: " -ForegroundColor Gray -NoNewline
-            Write-Host "$($alias.Name)" -ForegroundColor Cyan
+
+    $currentIndex = 0
+    $selections = @{}
+    $selectionComplete = $false
+
+    foreach ($index in $PreselectedIndices) {
+        $selections[$index] = $true
+    }
+
+    function DisplayItems {
+        param (
+            [bool]$selectionComplete
+        )
+
+        Clear-Host  # Clear the console before redrawing the menu
+        Write-Host "Select items (use 'Up/Down' arrows to navigate, 'Space' to select, 'Enter' to finalize):"
+        
+        for ($i = 0; $i -lt $Items.Count; $i++) {
+            $foregroundColor = if ($i -eq $currentIndex -and -not $selectionComplete) { "White" } else { "DarkGray" }
+            $selectedSign = if ($i -eq $currentIndex -and -not $selectionComplete) { " <" } else { "" }
+
+            $checkMark = if ($selections[$i]) { "`e[36m[x]`e[0m" } else { "[ ]" }
+            $hyphen = "-"
+            
+            Write-Host -NoNewline "$hyphen $checkMark"
+            Write-Host -NoNewline $($Items[$i].Name)$selectedSign -ForegroundColor $foregroundColor
+            Write-Host
         }
     }
+
+    DisplayItems -selectionComplete $false
+
+    do {
+        $key = [Console]::ReadKey($true)
+        switch ($key.Key) {
+            "UpArrow"   { if ($currentIndex -gt 0) { $currentIndex-- } }
+            "DownArrow" { if ($currentIndex -lt $Items.Count - 1) { $currentIndex++ } }
+            "Spacebar"  { $selections[$currentIndex] = -not $selections[$currentIndex] }
+        }
+        DisplayItems -selectionComplete $false
+    } while ($key.Key -ne "Enter")
+
+    $selectionComplete = $true
+    DisplayItems -selectionComplete $true
+
+    # Return indices of selected items
+    return $selections.Keys | Where-Object { $selections[$_] }
 }
 
-function DisplayLoadedScriptAndModuleInfo {
-    param(
-        [string]$FullPath,
-        [string]$Type # "Module" or "Script"
-    )
+function Load-ModuleWithDetails {
+    param([Parameter(Mandatory = $true)][string]$ModulePath)
 
-    $name = [System.IO.Path]::GetFileNameWithoutExtension($FullPath)
-    Write-Host "`nLoaded $($Type): $name" -ForegroundColor Green
-
-    $moduleCommands = $null
-    if ($Type -eq "Module") {
-        $moduleCommands = Get-Command -Module $name -ErrorAction SilentlyContinue
-    } elseif ($Type -eq "Script") {
-        $moduleCommands = Get-Command -ErrorAction SilentlyContinue | Where-Object { $_.ScriptBlock.File -eq $FullPath }
+    # Verify if the module path exists
+    if (-not (Test-Path -Path $ModulePath)) {
+        Write-Host "Module path does not exist: $ModulePath" -ForegroundColor Yellow
+        return $false
     }
 
-    if (-not $moduleCommands -or $moduleCommands.Count -eq 0) {
-        Write-Host "No commands found for $($Type): $name" -ForegroundColor Yellow
+    # Determine if the path is a directory or a file
+    $moduleToLoad = if (Test-Path -Path $ModulePath -PathType Container) {
+        $manifest = Get-ChildItem -Path $ModulePath -Filter "*.psd1" -File | Select-Object -First 1
+        $manifest?.FullName
+    } else {
+        $ModulePath
+    }
+
+    # Verify if a valid module manifest or file is found
+    if (-not $moduleToLoad) {
+        Write-Host "Valid module manifest (.psd1) or module file not found: $ModulePath" -ForegroundColor Red
+        return $false
+    }
+
+    try {
+        $moduleInfo = Import-Module -Name $moduleToLoad -PassThru -ErrorAction Stop
+        $moduleName = $moduleInfo.Name
+
+        $exportedCommandsAndAliases = @{}
+
+        foreach ($cmd in $moduleInfo.ExportedCommands.Values) {
+            if ($cmd.CommandType -eq 'Alias') {
+                # For aliases, map the alias name to the resolved command name
+                $exportedCommandsAndAliases[$cmd.Name] = $cmd.ResolvedCommandName
+            } else {
+                # For commands, ensure an entry exists even if it does not have aliases
+                $exportedCommandsAndAliases[$cmd.Name] = $null
+            }
+        }
+
+        $Global:LoadedModules[$moduleName] = @{
+            Path = $moduleToLoad
+            Version = $moduleInfo.Version.ToString()
+            Author = $moduleInfo.Author
+            Description = $moduleInfo.Description
+            ExportedCommandsAndAliases = $exportedCommandsAndAliases
+        }
+        return $true
+    } catch {
+        Write-Host "Failed to load module: $ModulePath with error: $_" -ForegroundColor Red
+        return $false
+    }
+}
+
+function Import-ExtraModules {
+    $pathToCustom = $env:CUSTOM_MODULES_PATH
+    if (-not $pathToCustom) {
+        Write-Host "CUSTOM_MODULES_PATH environment variable is not set." -ForegroundColor Yellow
         return
     }
 
-    foreach ($command in $moduleCommands) {
-        DisplayCommandInfo -Command $command
-        if ($Type -eq "Module") {
-            DisplayAliases -CommandName $command.Name -ModuleName $name
-        } else {
-            # For scripts, display aliases based on command name only
-            DisplayAliases -CommandName $command.Name -ModuleName $null
+    $moduleManifests = Get-ChildItem -Path $pathToCustom -Recurse -Filter "*.psd1"
+    if (-not $moduleManifests) {
+        Write-Host "No module manifests found in $pathToCustom." -ForegroundColor Yellow
+        return
+    }
+
+    $availableModules = $moduleManifests | ForEach-Object {
+        $name = $_.BaseName
+        @{
+            Path = $_.FullName
+            Name = $name
+            IsLoaded = $Global:LoadedModules.ContainsKey($name)
+        }
+    }
+
+    $selectedIndices = Show-MenuSelection -Items $availableModules -PreselectedIndices ($availableModules | Where-Object { $_.IsLoaded }).ForEach({ $availableModules.IndexOf($_) })
+    $newlySelectedIndices = $selectedIndices | Where-Object { -not $availableModules[$_].IsLoaded }
+
+    foreach ($index in $newlySelectedIndices) {
+        $module = $availableModules[$index]
+        $loadResult = Load-ModuleWithDetails -ModulePath $module.Path
+        if ($loadResult) {
+            Write-Host "Successfully loaded module: $($module.Name)" -ForegroundColor Green
         }
     }
 }
+
+Set-Alias -Name iem -Value Import-ExtraModules
+Set-Alias -Name slm -Value Show-LoadedModules
+
+# End region

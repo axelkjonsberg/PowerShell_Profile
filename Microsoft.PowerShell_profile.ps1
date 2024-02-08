@@ -4,62 +4,40 @@ $utilsPath = Join-Path -Path $env:USERPROFILE -ChildPath "Documents\WindowsPower
 $promptCustomizationsPath = Join-Path -Path $env:USERPROFILE -ChildPath "Documents\WindowsPowerShell\PromptCustomizations.ps1"
 .$promptCustomizationsPath
 
-if (-not (Test-Path variable:Global:LoadedModulesAndScripts)) {
-    $Global:LoadedModulesAndScripts = @{}
+$Global:LoadedModules = $Global:LoadedModules ?? @{}
+
+$customModulesBasePath = $env:CUSTOM_MODULES_PATH
+if (-not $customModulesBasePath) {
+    Write-Host "CUSTOM_MODULES_PATH environment variable is not set. Custom modules loading will be skipped." -ForegroundColor Yellow
+    return
 }
 
-$customModulesPath = Join-Path -Path $PSScriptRoot -ChildPath "Custom\Modules"
-$customScriptsPath = Join-Path -Path $PSScriptRoot -ChildPath "Custom\Scripts"
+Write-Host "Attempting to load custom modules from: $customModulesBasePath" -ForegroundColor Cyan
 
-$numberOfCustomFunctions = 0
+$configPath = Join-Path -Path $customModulesBasePath -ChildPath "DefaultCustomModules.json"
+if (-not (Test-Path -Path $configPath)) {
+    Write-Host "No inclusion file found at $configPath. If you want to load modules by default, add a DefaultCustomModules.json file at $configPath." -ForegroundColor Yellow
+    return
+}
 
-$moduleFiles = Get-ChildItem -Path $customModulesPath -Filter *.psm1 -Recurse
-foreach ($moduleFile in $moduleFiles) {
-    try {
-        $content = Get-Content $moduleFile.FullName -Head 1 -ErrorAction SilentlyContinue
-        if ($content -match "doNotLoadByDefault: true") {
-            continue
+Get-Content -Path $configPath -Raw | ConvertFrom-Json | ForEach-Object {
+    $fullModulePath = Join-Path -Path $customModulesBasePath -ChildPath $_
+    Load-ModuleWithDetails -ModulePath $fullModulePath | Out-Null
+}
+
+function Show-WelcomeMessage {
+    if ($Global:LoadedModules.Count -gt 0) {
+        Write-Host "`nSuccessfully loaded modules:" -ForegroundColor Cyan
+        foreach ($moduleName in $Global:LoadedModules.Keys) {
+            $module = $Global:LoadedModules[$moduleName]
+            Write-Host "- $moduleName (v$($module.Version))" -ForegroundColor Green
         }
-
-        $moduleFullPath = $moduleFile.FullName
-        $moduleName = $moduleFile.BaseName
-
-        Import-Module -Name $moduleFullPath -ErrorAction Stop
-        $Global:LoadedModulesAndScripts[$moduleFullPath] = $true
-
-        DisplayLoadedScriptAndModuleInfo -FullPath $moduleFullPath -Type "Module"
-        $moduleCommands = (Get-Command | Where-Object { $_.ScriptBlock.File -eq $moduleFullPath })
-        $numberOfCustomFunctions += $moduleCommands.Count
+    } else {
+        Write-Host "No custom modules have been loaded." -ForegroundColor Yellow
     }
-    catch {
-        Write-Host "Failed to load module: $moduleName" -ForegroundColor Red
-        Write-Host "Error: $_" -ForegroundColor Red
-    }
+    Write-Host "`nManage loaded modules with:" -ForegroundColor Green
+    Write-Host "- Import-ExtraModules (iem): Dynamically load additional modules." -ForegroundColor White
+    Write-Host "- Show-LoadedModules (slm): Display currently loaded modules." -ForegroundColor White
 }
 
-$scriptFiles = Get-ChildItem -Path $customScriptsPath -Filter *.ps1 -Recurse
-foreach ($scriptFile in $scriptFiles) {
-    try {
-        $content = Get-Content $scriptFile.FullName -Head 1 -ErrorAction SilentlyContinue
-        if ($content -match "doNotLoadByDefault: true") {
-            continue
-        }
-
-        $scriptFullPath = $scriptFile.FullName
-        .$scriptFullPath
-        $Global:LoadedModulesAndScripts[$scriptFullPath] = $true
-
-        DisplayLoadedScriptAndModuleInfo -FullPath $scriptFullPath -Type "Script"
-        $scriptCommands = (Get-Command | Where-Object { $_.ScriptBlock.File -eq $scriptFullPath })
-        $numberOfCustomFunctions += $scriptCommands.Count
-    }
-    catch {
-        $scriptName = [System.IO.Path]::GetFileNameWithoutExtension($scriptFile.FullName)
-        Write-Host "Failed to load script: $($scriptName)" -ForegroundColor Red
-        Write-Host "Error: $_" -ForegroundColor Red
-    }
-}
-
-Write-Host "`nSuccessfuly loaded PowerShell profile: " -NoNewline
-Write-Host $PROFILE -ForegroundColor Cyan
-Write-Host "Loaded $numberOfCustomFunctions custom functions."
+Show-WelcomeMessage
