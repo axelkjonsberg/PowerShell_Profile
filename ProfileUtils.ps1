@@ -10,11 +10,11 @@ function Show-ModuleInfo {
     }
 
     Write-Host "Module: $ModuleName (v$($module.Version))" -ForegroundColor Green
-    if($null -ne $module.Author) {
+    if ($null -ne $module.Author) {
         Write-Host "Author: $($module.Author)"
     }
     # Write-Host "Description: $($module.Description)"
-    if($module.ExportedCommandsAndAliases.Keys.Count -gt 0) {
+    if ($module.ExportedCommandsAndAliases.Keys.Count -gt 0) {
         Write-Host "Exported Commands and Aliases:"
     }
 
@@ -31,7 +31,7 @@ function Show-ModuleInfo {
 
             $displayName = "- $commandName $aliasText".Trim()
             Write-Host $displayName -ForegroundColor Yellow -NoNewline
-            
+
             if (-not $commandInfo.Parameters.Keys) {
                 Write-Host
             }
@@ -88,8 +88,8 @@ function Show-LoadedModules {
 
 function Show-MenuSelection {
     param(
-        [Parameter(Mandatory = $true)][array]$Items,
-        [Parameter(Mandatory = $false)][array]$PreselectedIndices
+        [Parameter(Mandatory = $true)] [array]$Items,
+        [Parameter(Mandatory = $false)] [array]$PreselectedIndices
     )
 
     $currentIndex = 0
@@ -101,22 +101,22 @@ function Show-MenuSelection {
     }
 
     function DisplayItems {
-        param (
+        param(
             [bool]$selectionComplete
         )
 
-        Clear-Host  # Clear the console before redrawing the menu
+        Clear-Host # Clear the console before redrawing the menu
         Write-Host "Select items (use 'Up/Down' arrows to navigate, 'Space' to select, 'Enter' to finalize):"
-        
+
         for ($i = 0; $i -lt $Items.Count; $i++) {
             $foregroundColor = if ($i -eq $currentIndex -and -not $selectionComplete) { "White" } else { "DarkGray" }
-            $selectedSign = if ($i -eq $currentIndex -and -not $selectionComplete) { " <" } else { "" }
+            $selectedSign = if ($i -eq $currentIndex -and -not $selectionComplete) { "<" } else { "" }
 
             $checkMark = if ($selections[$i]) { "`e[36m[x]`e[0m" } else { "[ ]" }
             $hyphen = "-"
-            
+
             Write-Host -NoNewline "$hyphen $checkMark"
-            Write-Host -NoNewline $($Items[$i].Name)$selectedSign -ForegroundColor $foregroundColor
+            Write-Host -NoNewline $($Items[$i].Name) $selectedSign -ForegroundColor $foregroundColor
             Write-Host
         }
     }
@@ -126,9 +126,9 @@ function Show-MenuSelection {
     do {
         $key = [Console]::ReadKey($true)
         switch ($key.Key) {
-            "UpArrow"   { if ($currentIndex -gt 0) { $currentIndex-- } }
+            "UpArrow" { if ($currentIndex -gt 0) { $currentIndex -- } }
             "DownArrow" { if ($currentIndex -lt $Items.Count - 1) { $currentIndex++ } }
-            "Spacebar"  { $selections[$currentIndex] = -not $selections[$currentIndex] }
+            "Spacebar" { $selections[$currentIndex] = -not $selections[$currentIndex] }
         }
         DisplayItems -selectionComplete $false
     } while ($key.Key -ne "Enter")
@@ -141,7 +141,7 @@ function Show-MenuSelection {
 }
 
 function Load-ModuleWithDetails {
-    param([Parameter(Mandatory = $true)][string]$ModulePath)
+    param([Parameter(Mandatory = $true)] [string]$ModulePath)
 
     # Verify if the module path exists
     if (-not (Test-Path -Path $ModulePath)) {
@@ -164,7 +164,7 @@ function Load-ModuleWithDetails {
     }
 
     try {
-        $moduleInfo = Import-Module -Name $moduleToLoad -PassThru -ErrorAction Stop
+        $moduleInfo = Import-Module -Name $moduleToLoad -Passthru -ErrorAction Stop
         $moduleName = $moduleInfo.Name
 
         $exportedCommandsAndAliases = @{}
@@ -222,7 +222,7 @@ function Import-ExtraModules {
         $module = $availableModules[$index]
         $loadResult = Load-ModuleWithDetails -ModulePath $module.Path
         if ($loadResult) {
-            Write-Host "Successfully loaded module: $($module.Name)" -ForegroundColor Green
+            Write-Host "Successfully loaded: $($module.Name)" -ForegroundColor Green
         }
     }
 }
