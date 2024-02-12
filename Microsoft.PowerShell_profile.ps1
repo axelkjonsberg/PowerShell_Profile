@@ -35,7 +35,7 @@ function Show-WelcomeMessage {
     } else {
         Write-Host "No custom modules have been loaded." -ForegroundColor Yellow
     }
-    Write-Host "`nManage loaded modules with:" -ForegroundColor Green
+    Write-Host "`nManage loaded modules with:" -ForegroundColor Cyan
     Write-Host "- Import-ExtraModules (iem): Dynamically load additional modules." -ForegroundColor White
     Write-Host "- Show-LoadedModules (slm): Display currently loaded modules." -ForegroundColor White
 }
