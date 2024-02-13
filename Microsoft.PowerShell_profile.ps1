@@ -25,6 +25,8 @@ Get-Content -Path $configPath -Raw | ConvertFrom-Json | ForEach-Object {
     Load-ModuleWithDetails -ModulePath $fullModulePath | Out-Null
 }
 
+$taskManagerAvailable = Get-TaskManager
+
 function Show-WelcomeMessage {
     if ($Global:LoadedModules.Count -gt 0) {
         Write-Host "`nSuccessfully loaded modules:" -ForegroundColor Cyan
@@ -38,6 +40,17 @@ function Show-WelcomeMessage {
     Write-Host "`nManage loaded modules with:" -ForegroundColor Cyan
     Write-Host "- Import-ExtraModules (iem): Dynamically load additional modules." -ForegroundColor White
     Write-Host "- Show-LoadedModules (slm): Display currently loaded modules." -ForegroundColor White
+
+    if (-not $taskManagerAvailable) {
+        return
+    }
+
+    $prioritizedTasks = Get-PrioritizedTasks --SilentlyContinue
+
+    if($prioritizedTasks.Count -gt 0) {
+        Write-Host "`nYour most important tasks:" -ForegroundColor Cyan
+        Get-PrioritizedTasks | Format-Table
+    }
 }
 
 Show-WelcomeMessage

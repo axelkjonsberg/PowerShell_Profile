@@ -71,6 +71,21 @@ function Show-Parameters {
     }
 }
 
+function Get-TaskManager {
+    [CmdletBinding()]
+    param()
+
+    $Global:LoadedModules = $Global:LoadedModules ?? @{}
+
+    $isInstalled = Get-Module -ListAvailable -Name ManageTasks
+
+    if (-not $isInstalled -and -not $Global:LoadedModules.ContainsKey('ManageTasks')) {
+        return $false
+    }
+
+    return $true
+}
+
 # End region
 
 # Region: Exported functions
@@ -123,10 +138,10 @@ function Show-MenuSelection {
 
     do {
         $key = [Console]::ReadKey($true)
-        if ($key.Key -in 'UpArrow', 'DownArrow', 'Spacebar') {
+        if ($key.Key -in 'UpArrow','DownArrow','Spacebar') {
             switch ($key.Key) {
                 "UpArrow" {
-                    if ($currentIndex -gt 0) { $currentIndex-- }
+                    if ($currentIndex -gt 0) { $currentIndex -- }
                 }
                 "DownArrow" {
                     if ($currentIndex -lt $Items.Count - 1) { $currentIndex++ }
