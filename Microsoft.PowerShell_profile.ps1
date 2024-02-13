@@ -49,7 +49,7 @@ function Show-WelcomeMessage {
 
     if($prioritizedTasks.Count -gt 0) {
         Write-Host "`nYour most important tasks:" -ForegroundColor Cyan
-        Get-PrioritizedTasks | Format-Table
+        Get-PrioritizedTasks | Format-Table -Property Description,Topic,Deadline -AutoSize
     }
 }
 
