@@ -4,7 +4,9 @@ $utilsPath = Join-Path -Path $env:USERPROFILE -ChildPath "Documents\WindowsPower
 $promptCustomizationsPath = Join-Path -Path $env:USERPROFILE -ChildPath "Documents\WindowsPowerShell\PromptCustomizations.ps1"
 .$promptCustomizationsPath
 
-$Global:LoadedModules = $Global:LoadedModules ?? @{}
+if (-not $Global:LoadedModules) {
+    $Global:LoadedModules = @{}
+}
 
 $customModulesBasePath = $env:CUSTOM_MODULES_PATH
 if (-not $customModulesBasePath) {

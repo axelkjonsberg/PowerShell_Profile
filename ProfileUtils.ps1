@@ -75,7 +75,9 @@ function Get-TaskManager {
     [CmdletBinding()]
     param()
 
-    $Global:LoadedModules = $Global:LoadedModules ?? @{}
+    if (-not $Global:LoadedModules) {
+        $Global:LoadedModules = @{}
+    }
 
     $isInstalled = Get-Module -ListAvailable -Name ManageTasks
 
