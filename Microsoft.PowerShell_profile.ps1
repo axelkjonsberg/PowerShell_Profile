@@ -47,11 +47,22 @@ function Show-WelcomeMessage {
         return
     }
 
-    $prioritizedTasks = Get-PrioritizedTasks --SilentlyContinue
+    $prioritizedTasks = Get-PrioritizedTasks
 
-    if($prioritizedTasks.Count -gt 0) {
+    if ($prioritizedTasks.Count -gt 0) {
         Write-Host "`nYour most important tasks:" -ForegroundColor Cyan
-        Get-PrioritizedTasks | Format-Table -Property Description,Topic,Deadline -AutoSize
+        $prioritizedTasks | Format-Table -Property Description,Topic,@{
+            Name = 'Deadline'
+            Expression = {
+                $formattedDeadline = if ($_.Deadline) { $_.Deadline.ToString("yyyy-MM-dd HH:mm:ss") } else { "No Deadline" }
+
+                if ($_.PSObject.Properties.Name -contains 'StrictDeadline' -and $_.StrictDeadline -eq $false) {
+                    "$formattedDeadline (Non-strict deadline)"
+                } else {
+                    $formattedDeadline
+                }
+            }
+        } -AutoSize
     }
 }
 
