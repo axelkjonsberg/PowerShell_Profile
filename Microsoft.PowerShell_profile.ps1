@@ -47,36 +47,7 @@ function Show-WelcomeMessage {
         return
     }
 
-    $prioritizedTasks = Get-PrioritizedTasks
-
-    if ($prioritizedTasks.Count -gt 0) {
-        Write-Host "`nYour most important tasks:" -ForegroundColor Cyan
-        $prioritizedTasks | Format-Table -Property Description,Topic,@{
-            Name = 'Deadline'
-            Expression = {
-                $deadline = $_.Deadline
-                $now = Get-Date
-                $isOverdue = $deadline -and ($deadline -lt $now)
-                $isApproaching = $deadline -and ($deadline -lt $now.AddHours(12)) -and ($deadline -gt $now)
-                $formattedDeadline = if ($deadline) { $deadline.ToString("yyyy-MM-dd HH:mm:ss") } else { "No Deadline" }
-
-                if ($_.PSObject.Properties.Name -contains 'StrictDeadline' -and $_.StrictDeadline -eq $false) {
-                    $formattedDeadline += " (Lax deadline)"
-                }
-
-                $e = [char]27 # ESC character
-                if ($isOverdue) {
-                    $color = "31" # Red for overdue
-                    "$e[${color}m$formattedDeadline${e}[0m"
-                } elseif ($isApproaching) {
-                    $color = "33" # Yellow for approaching
-                    "$e[${color}m$formattedDeadline${e}[0m"
-                } else {
-                    $formattedDeadline
-                }
-            }
-        } -AutoSize
-    }
+    Show-PrioritizedTasks
 }
 
 Show-WelcomeMessage
