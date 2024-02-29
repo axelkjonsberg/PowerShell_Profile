@@ -88,6 +88,26 @@ function Get-TaskManager {
     return $true
 }
 
+function Confirm-GitRepository {
+    try {
+        $null = git rev-parse --is-inside-work-tree
+        $true
+    } catch {
+        $false
+    }
+}
+
+function Add-SshKey {
+    if (-not (Test-Path env:SSH_AGENT_PID)) {
+        Start-Process ssh-agent -WindowStyle Hidden
+    }
+
+    $keysAdded = ssh-add -l
+    if ($keysAdded -contains "The agent has no identities.") {
+        ssh-add
+    }
+}
+
 # End region
 
 # Region: Exported functions

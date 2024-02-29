@@ -1,6 +1,13 @@
 $utilsPath = Join-Path -Path $env:USERPROFILE -ChildPath "Documents\WindowsPowerShell\ProfileUtils.ps1"
 .$utilsPath
 
+if (Confirm-GitRepository) {
+    Add-SshKey
+    
+    # Wake up the GPG agent
+    gpg-connect-agent /bye | Out-Null
+}
+
 $promptCustomizationsPath = Join-Path -Path $env:USERPROFILE -ChildPath "Documents\WindowsPowerShell\PromptCustomizations.ps1"
 .$promptCustomizationsPath
 
