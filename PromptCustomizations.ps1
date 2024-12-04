@@ -1,5 +1,15 @@
 ﻿$WeatherCacheFile = "$env:USERPROFILE\.weatherCache.json"
+$ConfigFile = "$env:USERPROFILE\.weatherConfig.json"
 $IsPS7 = $PSVersionTable.PSVersion.Major -ge 7
+
+function Get-WeatherConfig {
+    if (Test-Path $ConfigFile) {
+        return Get-Content $ConfigFile | ConvertFrom-Json
+    }
+}
+
+$config = Get-WeatherConfig
+$UserAgent = $config.UserAgent
 
 function Get-CachedWeatherData {
     if (Test-Path $WeatherCacheFile) {
@@ -30,8 +40,10 @@ function Update-WeatherData {
         return
     }
 
+    Write-Host $UserAgent
+
     $headers = @{
-        # "User-Agent" = Follow instructions under "Legal stuff" at https://api.met.no/doc/TermsOfService
+        "User-Agent" = $UserAgent
     }
     $lat = 59.91278
     $lon = 10.73639
@@ -97,7 +109,6 @@ function Update-WeatherData {
             $symbolKey = $symbolCode -replace '_day$|_night$',''
             $global:WeatherIcon = if ($IsPS7) { $weatherIcons[$symbolKey] } else { "" }
 
-            # Save to cache
             Save-WeatherDataToCache $global:WeatherTemperature $global:WeatherIcon
         }
         else {
@@ -124,17 +135,53 @@ function Get-GitBranch {
     )
 
     $gitBranch = & git rev-parse --abbrev-ref HEAD 2>$null
-    if ($gitBranch) {
-        $repositoryPath = (& git rev-parse --show-toplevel 2>$null).Trim()
-        $repositoryName = (Split-Path -Leaf -Path $repositoryPath).Trim()
+    if (-not $gitBranch) {
+        return ""
+    }
 
+    $repositoryPath = (& git rev-parse --show-toplevel 2>$null).Trim()
+    $repositoryName = (Split-Path -Leaf -Path $repositoryPath).Trim()
+
+    $hasUpstream = (& git rev-parse --abbrev-ref '@{u}' 2>$null)
+    if (-not $hasUpstream) {
         if ($repositoryName -ne $currentDirectory) {
-            return "[$gitBranch ($repositoryName)]"
+            return "[${repositoryName}:${gitBranch}]"
         } else {
-            return "[$gitBranch]"
+            return "[${gitBranch}]"
         }
     }
-    return ""
+
+    $aheadCount = (& git rev-list --count '@{u}..@' 2>$null)
+    $behindCount = (& git rev-list --count '@..@{u}' 2>$null)
+
+    $statusIndicator = ""
+    $showNumbers = ($aheadCount -gt 1 -or $behindCount -gt 1)
+
+    if ($behindCount -gt 0) {
+        if ($showNumbers) {
+            $statusIndicator += "$behindCount↓"
+        } else {
+            $statusIndicator += "↓"
+        }
+    }
+
+    if ($aheadCount -gt 0) {
+        if ($showNumbers) {
+            $statusIndicator += "$aheadCount↑"
+        } else {
+            $statusIndicator += "↑"
+        }
+    }
+
+    if ($statusIndicator) {
+        $statusIndicator = "($statusIndicator)"
+    }
+
+    if ($repositoryName -ne $currentDirectory) {
+        return "[${repositoryName}:${gitBranch}${statusIndicator}]"
+    } else {
+        return "[${gitBranch}${statusIndicator}]"
+    }
 }
 
 function prompt {
