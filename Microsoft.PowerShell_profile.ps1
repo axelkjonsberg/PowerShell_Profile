@@ -1,15 +1,17 @@
 $utilsPath = Join-Path -Path $env:USERPROFILE -ChildPath "Documents\WindowsPowerShell\ProfileUtils.ps1"
 .$utilsPath
 
-if (Confirm-GitRepository) {
+$isGitRepo = Confirm-GitRepository
+if ($isGitRepo) {
     Add-SshKey
-    
+    Write-Host
     # Wake up the GPG agent
-    gpg-connect-agent /bye | Out-Null
+    # Or not, as we are using ssh for signing commits
+    # gpg-connect-agent /bye | Out-Null
 }
 
 $promptCustomizationsPath = Join-Path -Path $env:USERPROFILE -ChildPath "Documents\WindowsPowerShell\PromptCustomizations.ps1"
-.$promptCustomizationsPath
+.$promptCustomizationsPath | Out-Null
 
 if (-not $Global:LoadedModules) {
     $Global:LoadedModules = @{}
@@ -21,7 +23,7 @@ if (-not $customModulesBasePath) {
     return
 }
 
-Write-Host "Attempting to load custom modules from: $customModulesBasePath" -ForegroundColor Cyan
+Write-Host "Attempting to load custom modules from: $customModulesBasePath"
 
 $configPath = Join-Path -Path $customModulesBasePath -ChildPath "DefaultCustomModules.json"
 if (-not (Test-Path -Path $configPath)) {
@@ -47,14 +49,14 @@ function Show-WelcomeMessage {
         Write-Host "No custom modules have been loaded." -ForegroundColor Yellow
     }
     Write-Host "`nManage loaded modules with:" -ForegroundColor Cyan
-    Write-Host "- Import-ExtraModules (iem): Dynamically load additional modules." -ForegroundColor White
-    Write-Host "- Show-LoadedModules (slm): Display currently loaded modules." -ForegroundColor White
+    Write-Host "- Import-ExtraModules `e[36m(iem)`e[0m: Dynamically load additional modules." -ForegroundColor Yellow
+    Write-Host "- Show-LoadedModules `e[36m(slm)`e[0m: Display currently loaded modules." -ForegroundColor Yellow
 
-    if (-not $taskManagerAvailable) {
-        return
+    if ($taskManagerAvailable) {
+        # Show-PrioritizedTasks
     }
 
-    Show-PrioritizedTasks
+    Write-Host
 }
 
 Show-WelcomeMessage

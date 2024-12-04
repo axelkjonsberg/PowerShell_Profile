@@ -1,3 +1,122 @@
+$WeatherCacheFile = "$env:USERPROFILE\.weatherCache.json"
+
+function Get-CachedWeatherData {
+    if (Test-Path $WeatherCacheFile) {
+        $data = Get-Content $WeatherCacheFile | ConvertFrom-Json
+        $lastUpdated = [DateTime]$data.LastUpdated
+        # Check if the cache is fresh (less than 1 hour old)
+        if ((Get-Date) -lt $lastUpdated.AddHours(1)) {
+            return $data
+        }
+    }
+    return $null
+}
+
+function Save-WeatherDataToCache($temperature, $icon) {
+    $weatherData = @{
+        LastUpdated  = (Get-Date).ToString("o")
+        Temperature  = $temperature
+        Icon         = $icon
+    }
+    $weatherData | ConvertTo-Json | Out-File $WeatherCacheFile
+}
+
+function Update-WeatherData {
+    $data = Get-CachedWeatherData
+    if ($data) {
+        $global:WeatherTemperature = $data.Temperature
+        $global:WeatherIcon = $data.Icon
+        return
+    }
+
+    $headers = @{
+        "User-Agent" = "VaermeldingForTerminal/0.1 (example@example.com)"
+    }
+    $lat = 59.91278
+    $lon = 10.73639
+    $apiUrl = "https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=$lat&lon=$lon"
+    $IsPS7 = $PSVersionTable.PSVersion.Major -ge 7
+
+    $weatherIcons = @{
+        "clearsky"                         = "☀️"
+        "cloudy"                           = "☁️"
+        "fair"                             = "🌤️"
+        "fog"                              = "🌫️"
+        "heavyrain"                        = "🌧️"
+        "heavyrainandthunder"              = "⛈️"
+        "heavyrainshowers"                 = "🌧️"
+        "heavyrainshowersandthunder"       = "⛈️"
+        "heavysleet"                       = "🌨️"
+        "heavysleetandthunder"             = "⛈️"
+        "heavysleetshowers"                = "🌨️"
+        "heavysleetshowersandthunder"      = "⛈️"
+        "heavysnow"                        = "❄️"
+        "heavysnowandthunder"              = "⛈️"
+        "heavysnowshowers"                 = "❄️"
+        "heavysnowshowersandthunder"       = "⛈️"
+        "lightrain"                        = "🌦️"
+        "lightrainandthunder"              = "⛈️"
+        "lightrainshowers"                 = "🌦️"
+        "lightrainshowersandthunder"       = "⛈️"
+        "lightsleet"                       = "🌨️"
+        "lightsleetandthunder"             = "⛈️"
+        "lightsleetshowers"                = "🌨️"
+        "lightsnow"                        = "🌨️"
+        "lightsnowandthunder"              = "⛈️"
+        "lightsnowshowers"                 = "🌨️"
+        "partlycloudy"                     = "⛅"
+        "rain"                             = "🌧️"
+        "rainandthunder"                   = "⛈️"
+        "rainshowers"                      = "🌧️"
+        "rainshowersandthunder"            = "⛈️"
+        "sleet"                            = "🌨️"
+        "sleetandthunder"                  = "⛈️"
+        "sleetshowers"                     = "🌨️"
+        "sleetshowersandthunder"           = "⛈️"
+        "snow"                             = "🌨️"
+        "snowandthunder"                   = "⛈️"
+        "snowshowers"                      = "🌨️"
+        "snowshowersandthunder"            = "⛈️"
+        "thunderstorm"                     = "🌩️"
+    }
+
+    $noConnectionIcon = "🚫🛜"
+    $noDataIcon = "❓"
+
+    try {
+        $response = Invoke-RestMethod -Uri $apiUrl -Headers $headers -TimeoutSec 5
+        $timeseries = $response.properties.timeseries
+
+        $forecast = $timeseries | Where-Object {
+            [DateTime]$_.time -ge (Get-Date).AddHours(1)
+        } | Select-Object -First 1
+
+        if ($forecast) {
+            $global:WeatherTemperature = $forecast.data.instant.details.air_temperature
+            $symbolCode = $forecast.data.next_1_hours.summary.symbol_code
+            $symbolKey = $symbolCode -replace '_day$|_night$', ''
+            $global:WeatherIcon = if ($IsPS7) { $weatherIcons[$symbolKey] } else { "" }
+
+            # Save to cache
+            Save-WeatherDataToCache $global:WeatherTemperature $global:WeatherIcon
+        }
+        else {
+            # We have internet but no forecast data
+            $global:WeatherTemperature = "N/A"
+            $global:WeatherIcon = if ($IsPS7) { $noDataIcon } else { "(No weather data)" }
+            Save-WeatherDataToCache $global:WeatherTemperature $global:WeatherIcon
+        }
+    }
+    catch {
+        # In case of an error (e.g., no internet), set the no-connection icon
+        $global:WeatherTemperature = "N/A"
+        $global:WeatherIcon = if ($IsPS7) { $noConnectionIcon } else { "(No connection)" }
+        Save-WeatherDataToCache $global:WeatherTemperature $global:WeatherIcon
+    }
+}
+
+Update-WeatherData
+
 function Get-GitBranch {
     param(
         [string]$currentDirectory
@@ -18,18 +137,58 @@ function Get-GitBranch {
 }
 
 function prompt {
+    $promptSegments = @()
+
+    # Existing shell version
     $shellVersion = "PS v$($PSVersionTable.PSVersion.ToString())"
-    $currentDirectory = Split-Path -Leaf -Path (Get-Location)
+    $promptSegments += @{
+        Text = $shellVersion
+        Color = "Green"
+    }
+
+    # Weather information
+    $weatherInfo = ""
+    if ($IsPS7 -and $global:WeatherIcon) {
+        $weatherInfo = "($($global:WeatherIcon) $($global:WeatherTemperature)°C)"
+    } elseif ($global:WeatherTemperature) {
+        $weatherInfo = "($($global:WeatherTemperature)°C)"
+    }
+
+    if ($weatherInfo -ne "") {
+        $promptSegments += @{
+            Text = $weatherInfo
+            Color = "Magenta"
+        }
+    }
+
+    # Current path
     $currentPath = (Get-Location).Path
-    $relativePath = $currentPath.Replace($env:USERPROFILE,"")
+    $relativePath = $currentPath.Replace($env:USERPROFILE, "")
+    $pathInfo = "~$relativePath"
+    $promptSegments += @{
+        Text = $pathInfo
+        Color = "Yellow"
+    }
 
+    # Git information
+    $currentDirectory = Split-Path -Leaf -Path (Get-Location)
     $gitInfo = Get-GitBranch -currentDirectory $currentDirectory
-
-    Write-Host -NoNewline -ForegroundColor Green "$shellVersion"
-    Write-Host -NoNewline " ~$relativePath" -ForegroundColor Yellow
-
     if ($gitInfo -ne "") {
-        Write-Host -NoNewline -ForegroundColor Cyan " $gitInfo"
+        $promptSegments += @{
+            Text = $gitInfo
+            Color = "Cyan"
+        }
+    }
+
+    # Build and display the prompt with proper spacing
+    $firstSegment = $true
+    foreach ($segment in $promptSegments) {
+        if ($firstSegment) {
+            $firstSegment = $false
+        } else {
+            Write-Host -NoNewline " "
+        }
+        Write-Host -NoNewline -ForegroundColor $segment.Color $segment.Text
     }
 
     # Return a newline character to move the prompt to the next line

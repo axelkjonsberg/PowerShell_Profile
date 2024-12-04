@@ -13,7 +13,7 @@ function Show-ModuleInfo {
     if ($null -ne $module.Author) {
         Write-Host "Author: $($module.Author)"
     }
-    # Write-Host "Description: $($module.Description)"
+
     if ($module.ExportedCommandsAndAliases.Keys.Count -gt 0) {
         Write-Host "Exported Commands and Aliases:"
     }
@@ -89,24 +89,38 @@ function Get-TaskManager {
 }
 
 function Confirm-GitRepository {
-    try {
-        $null = git rev-parse --is-inside-work-tree
-        $true
-    } catch {
-        $false
-    }
+    # Run git quietly, redirecting stdout and stderr to null
+    git rev-parse --is-inside-work-tree > $null 2>&1
+    return ($LastExitCode -eq 0)
 }
 
 function Add-SshKey {
-    if (-not (Test-Path env:SSH_AGENT_PID)) {
-        Start-Process ssh-agent -WindowStyle Hidden
+    if (-not (Get-Service ssh-agent -ErrorAction SilentlyContinue)) {
+        Start-Service ssh-agent
+        Write-Host "ssh-agent service started." -ForegroundColor Green
     }
 
-    $keysAdded = ssh-add -l
-    if ($keysAdded -contains "The agent has no identities.") {
+    $sshPublicKeyPath = "$HOME\.ssh\id_ed25519.pub"
+    if (Test-Path $sshPublicKeyPath) {
+        Write-Host "SSH public key found at $sshPublicKeyPath" -ForegroundColor Green
+    } else {
+        Write-Host "SSH public key not found at $sshPublicKeyPath." -ForegroundColor Red
+        Write-Host "Please generate one using `ssh-keygen -t ed25519`." -ForegroundColor Yellow
+        return
+    }
+
+    $keysAdded = ssh-add -l 2>&1
+    if ($keysAdded -like "*The agent has no identities.*") {
+        Write-Host "No SSH keys found in ssh-agent. Adding the private key..." -ForegroundColor Yellow
         ssh-add
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "SSH key added to ssh-agent successfully." -ForegroundColor Green
+        } else {
+            Write-Host "Failed to add SSH key to ssh-agent." -ForegroundColor Red
+        }
     }
 }
+
 
 # End region
 
