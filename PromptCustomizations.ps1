@@ -30,7 +30,7 @@ function Update-WeatherData {
     }
 
     $headers = @{
-        "User-Agent" = "VaermeldingForTerminal/0.1 (example@example.com)"
+        # "User-Agent" = Follow instructions under "Legal stuff" at https://api.met.no/doc/TermsOfService
     }
     $lat = 59.91278
     $lon = 10.73639
