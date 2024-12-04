@@ -1,10 +1,11 @@
-$WeatherCacheFile = "$env:USERPROFILE\.weatherCache.json"
+﻿$WeatherCacheFile = "$env:USERPROFILE\.weatherCache.json"
+$IsPS7 = $PSVersionTable.PSVersion.Major -ge 7
 
 function Get-CachedWeatherData {
     if (Test-Path $WeatherCacheFile) {
         $data = Get-Content $WeatherCacheFile | ConvertFrom-Json
-        $lastUpdated = [DateTime]$data.LastUpdated
-        # Check if the cache is fresh (less than 1 hour old)
+        $lastUpdated = [datetime]$data.LastUpdated
+
         if ((Get-Date) -lt $lastUpdated.AddHours(1)) {
             return $data
         }
@@ -12,11 +13,11 @@ function Get-CachedWeatherData {
     return $null
 }
 
-function Save-WeatherDataToCache($temperature, $icon) {
+function Save-WeatherDataToCache ($temperature,$icon) {
     $weatherData = @{
-        LastUpdated  = (Get-Date).ToString("o")
-        Temperature  = $temperature
-        Icon         = $icon
+        LastUpdated = (Get-Date).ToString("o")
+        Temperature = $temperature
+        Icon = $icon
     }
     $weatherData | ConvertTo-Json | Out-File $WeatherCacheFile
 }
@@ -35,49 +36,48 @@ function Update-WeatherData {
     $lat = 59.91278
     $lon = 10.73639
     $apiUrl = "https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=$lat&lon=$lon"
-    $IsPS7 = $PSVersionTable.PSVersion.Major -ge 7
 
     $weatherIcons = @{
-        "clearsky"                         = "☀️"
-        "cloudy"                           = "☁️"
-        "fair"                             = "🌤️"
-        "fog"                              = "🌫️"
-        "heavyrain"                        = "🌧️"
-        "heavyrainandthunder"              = "⛈️"
-        "heavyrainshowers"                 = "🌧️"
-        "heavyrainshowersandthunder"       = "⛈️"
-        "heavysleet"                       = "🌨️"
-        "heavysleetandthunder"             = "⛈️"
-        "heavysleetshowers"                = "🌨️"
-        "heavysleetshowersandthunder"      = "⛈️"
-        "heavysnow"                        = "❄️"
-        "heavysnowandthunder"              = "⛈️"
-        "heavysnowshowers"                 = "❄️"
-        "heavysnowshowersandthunder"       = "⛈️"
-        "lightrain"                        = "🌦️"
-        "lightrainandthunder"              = "⛈️"
-        "lightrainshowers"                 = "🌦️"
-        "lightrainshowersandthunder"       = "⛈️"
-        "lightsleet"                       = "🌨️"
-        "lightsleetandthunder"             = "⛈️"
-        "lightsleetshowers"                = "🌨️"
-        "lightsnow"                        = "🌨️"
-        "lightsnowandthunder"              = "⛈️"
-        "lightsnowshowers"                 = "🌨️"
-        "partlycloudy"                     = "⛅"
-        "rain"                             = "🌧️"
-        "rainandthunder"                   = "⛈️"
-        "rainshowers"                      = "🌧️"
-        "rainshowersandthunder"            = "⛈️"
-        "sleet"                            = "🌨️"
-        "sleetandthunder"                  = "⛈️"
-        "sleetshowers"                     = "🌨️"
-        "sleetshowersandthunder"           = "⛈️"
-        "snow"                             = "🌨️"
-        "snowandthunder"                   = "⛈️"
-        "snowshowers"                      = "🌨️"
-        "snowshowersandthunder"            = "⛈️"
-        "thunderstorm"                     = "🌩️"
+        "clearsky" = "☀️"
+        "cloudy" = "☁️"
+        "fair" = "🌤️"
+        "fog" = "🌫️"
+        "heavyrain" = "🌧️"
+        "heavyrainandthunder" = "⛈️"
+        "heavyrainshowers" = "🌧️"
+        "heavyrainshowersandthunder" = "⛈️"
+        "heavysleet" = "🌨️"
+        "heavysleetandthunder" = "⛈️"
+        "heavysleetshowers" = "🌨️"
+        "heavysleetshowersandthunder" = "⛈️"
+        "heavysnow" = "❄️"
+        "heavysnowandthunder" = "⛈️"
+        "heavysnowshowers" = "❄️"
+        "heavysnowshowersandthunder" = "⛈️"
+        "lightrain" = "🌦️"
+        "lightrainandthunder" = "⛈️"
+        "lightrainshowers" = "🌦️"
+        "lightrainshowersandthunder" = "⛈️"
+        "lightsleet" = "🌨️"
+        "lightsleetandthunder" = "⛈️"
+        "lightsleetshowers" = "🌨️"
+        "lightsnow" = "🌨️"
+        "lightsnowandthunder" = "⛈️"
+        "lightsnowshowers" = "🌨️"
+        "partlycloudy" = "⛅"
+        "rain" = "🌧️"
+        "rainandthunder" = "⛈️"
+        "rainshowers" = "🌧️"
+        "rainshowersandthunder" = "⛈️"
+        "sleet" = "🌨️"
+        "sleetandthunder" = "⛈️"
+        "sleetshowers" = "🌨️"
+        "sleetshowersandthunder" = "⛈️"
+        "snow" = "🌨️"
+        "snowandthunder" = "⛈️"
+        "snowshowers" = "🌨️"
+        "snowshowersandthunder" = "⛈️"
+        "thunderstorm" = "🌩️"
     }
 
     $noConnectionIcon = "🚫🛜"
@@ -88,13 +88,13 @@ function Update-WeatherData {
         $timeseries = $response.properties.timeseries
 
         $forecast = $timeseries | Where-Object {
-            [DateTime]$_.time -ge (Get-Date).AddHours(1)
+            [datetime]$_.time -ge (Get-Date).AddHours(1)
         } | Select-Object -First 1
 
         if ($forecast) {
             $global:WeatherTemperature = $forecast.data.instant.details.air_temperature
             $symbolCode = $forecast.data.next_1_hours.summary.symbol_code
-            $symbolKey = $symbolCode -replace '_day$|_night$', ''
+            $symbolKey = $symbolCode -replace '_day$|_night$',''
             $global:WeatherIcon = if ($IsPS7) { $weatherIcons[$symbolKey] } else { "" }
 
             # Save to cache
@@ -111,7 +111,8 @@ function Update-WeatherData {
         # In case of an error (e.g., no internet), set the no-connection icon
         $global:WeatherTemperature = "N/A"
         $global:WeatherIcon = if ($IsPS7) { $noConnectionIcon } else { "(No connection)" }
-        Save-WeatherDataToCache $global:WeatherTemperature $global:WeatherIcon
+
+        # Do NOT save to cache here, so that "no connection" state isn't persisted
     }
 }
 
@@ -149,7 +150,7 @@ function prompt {
     # Weather information
     $weatherInfo = ""
     if ($IsPS7 -and $global:WeatherIcon) {
-        $weatherInfo = "($($global:WeatherIcon) $($global:WeatherTemperature)°C)"
+        $weatherInfo = "($($global:WeatherTemperature)°C$([char]0x00A0)$($global:WeatherIcon)$([char]0x00A0))"
     } elseif ($global:WeatherTemperature) {
         $weatherInfo = "($($global:WeatherTemperature)°C)"
     }
@@ -163,7 +164,7 @@ function prompt {
 
     # Current path
     $currentPath = (Get-Location).Path
-    $relativePath = $currentPath.Replace($env:USERPROFILE, "")
+    $relativePath = $currentPath.Replace($env:USERPROFILE,"")
     $pathInfo = "~$relativePath"
     $promptSegments += @{
         Text = $pathInfo
