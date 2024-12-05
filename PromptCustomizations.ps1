@@ -196,9 +196,11 @@ function prompt {
 
     # Weather information
     $weatherInfo = ""
+    $adjustedSpace = "$([char]0x202F)"
     if ($IsPS7 -and $global:WeatherIcon) {
-        $weatherInfo = "($($global:WeatherTemperature)°C$([char]0x00A0)$($global:WeatherIcon)$([char]0x00A0))"
-    } elseif ($global:WeatherTemperature) {
+        $weatherInfo = "($($global:WeatherTemperature)°C$adjustedSpace$($global:WeatherIcon)$adjustedSpace)"
+    }
+    elseif ($global:WeatherTemperature) {
         $weatherInfo = "($($global:WeatherTemperature)°C)"
     }
 

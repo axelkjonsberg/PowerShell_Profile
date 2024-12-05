@@ -1,5 +1,3 @@
-# Region: Internal helper functions 
-
 function Show-ModuleInfo {
     param([string]$ModuleName)
 
@@ -121,11 +119,6 @@ function Add-SshKey {
     }
 }
 
-
-# End region
-
-# Region: Exported functions
-
 function Show-LoadedModules {
     if ($Global:LoadedModules.Count -gt 0) {
         Write-Host "`nLoaded Modules:" -ForegroundColor Cyan
@@ -143,6 +136,10 @@ function Show-MenuSelection {
         [Parameter(Mandatory = $false)] [array]$PreselectedIndices
     )
 
+    $ARROW_KEYS = @('UpArrow','DownArrow','Spacebar')
+    $FOREGROUND_COLOR_HIGHLIGHT = "White"
+    $FOREGROUND_COLOR_NORMAL = "DarkGray"
+    
     $currentIndex = 0
     $selections = @{}
     $selectionComplete = $false
@@ -152,50 +149,48 @@ function Show-MenuSelection {
     }
 
     function DisplayItems {
-        param(
-            [bool]$selectionComplete
-        )
-
+        param([bool]$SelectionComplete)
         Clear-Host
         Write-Host "Select items (use 'Up/Down' arrows to navigate, 'Space' to select, 'Enter' to finalize):"
-
         for ($i = 0; $i -lt $Items.Count; $i++) {
-            $foregroundColor = if ($i -eq $currentIndex -and -not $selectionComplete) { "White" } else { "DarkGray" }
-            $selectedSign = if ($i -eq $currentIndex -and -not $selectionComplete) { "<" } else { "" }
+            $isCurrentItem = ($i -eq $currentIndex -and -not $SelectionComplete)
+            $foregroundColor = if ($isCurrentItem) { $FOREGROUND_COLOR_HIGHLIGHT } else { $FOREGROUND_COLOR_NORMAL }
+            $selectedSign = if ($isCurrentItem) { "<" } else { "" }
             $checkMark = if ($selections[$i]) { "`e[36m[x]`e[0m" } else { "[ ]" }
-
-            $displayString = "- $checkMark $($Items[$i].Name) $selectedSign"
-            Write-Host $displayString -ForegroundColor $foregroundColor
+            Write-Host "- $checkMark $($Items[$i].Name) $selectedSign" -ForegroundColor $foregroundColor
         }
     }
 
     [console]::CursorVisible = $false
-    DisplayItems -selectionComplete $false
+    DisplayItems -SelectionComplete $false
 
     do {
         $key = [Console]::ReadKey($true)
-        if ($key.Key -in 'UpArrow','DownArrow','Spacebar') {
-            switch ($key.Key) {
-                "UpArrow" {
-                    if ($currentIndex -gt 0) { $currentIndex -- }
-                }
-                "DownArrow" {
-                    if ($currentIndex -lt $Items.Count - 1) { $currentIndex++ }
-                }
-                "Spacebar" {
-                    $selections[$currentIndex] = -not $selections[$currentIndex]
-                }
-            }
-            DisplayItems -selectionComplete $false
+
+        if ($ARROW_KEYS -notcontains $key.Key) {
+            continue
         }
+
+        switch ($key.Key) {
+            "UpArrow" {
+                if ($currentIndex -gt 0) { $currentIndex -- }
+            }
+            "DownArrow" {
+                if ($currentIndex -lt $Items.Count - 1) { $currentIndex++ }
+            }
+            "Spacebar" {
+                $selections[$currentIndex] = -not $selections[$currentIndex]
+            }
+        }
+
+        DisplayItems -SelectionComplete $false
     } while ($key.Key -ne "Enter")
 
     [console]::CursorVisible = $true
 
     $selectionComplete = $true
-    DisplayItems -selectionComplete $true
+    DisplayItems -SelectionComplete $true
 
-    # Return indices of selected items
     return $selections.Keys | Where-Object { $selections[$_] }
 }
 
@@ -288,5 +283,3 @@ function Import-ExtraModules {
 
 Set-Alias -Name iem -Value Import-ExtraModules
 Set-Alias -Name slm -Value Show-LoadedModules
-
-# End region
