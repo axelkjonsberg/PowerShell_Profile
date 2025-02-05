@@ -1,4 +1,5 @@
 ﻿$WeatherCacheFile = "$env:USERPROFILE\.weatherCache.json"
+$AirQualityCacheFile = "$env:USERPROFILE\.airQualityCache.json"
 $ConfigFile = "$env:USERPROFILE\.weatherConfig.json"
 $IsPS7 = $PSVersionTable.PSVersion.Major -ge 7
 
@@ -15,7 +16,6 @@ function Get-CachedWeatherData {
     if (Test-Path $WeatherCacheFile) {
         $data = Get-Content $WeatherCacheFile | ConvertFrom-Json
         $lastUpdated = [datetime]$data.LastUpdated
-
         if ((Get-Date) -lt $lastUpdated.AddHours(1)) {
             return $data
         }
@@ -112,22 +112,107 @@ function Update-WeatherData {
             Save-WeatherDataToCache $global:WeatherTemperature $global:WeatherIcon
         }
         else {
-            # We have internet but no forecast data
+            # Internet is available but no forecast data was returned
             $global:WeatherTemperature = "N/A"
             $global:WeatherIcon = if ($IsPS7) { $noDataIcon } else { "(No weather data)" }
             Save-WeatherDataToCache $global:WeatherTemperature $global:WeatherIcon
         }
     }
     catch {
-        # In case of an error (e.g., no internet), set the no-connection icon
+        # On error (e.g. no internet), set the no-connection icon
         $global:WeatherTemperature = "N/A"
         $global:WeatherIcon = if ($IsPS7) { $noConnectionIcon } else { "(No connection)" }
+        # Do not cache in this case so that the "no connection" state is not persisted.
+    }
+}
 
-        # Do NOT save to cache here, so that "no connection" state isn't persisted
+function Get-CachedAirQualityData {
+    if (Test-Path $AirQualityCacheFile) {
+        $data = Get-Content $AirQualityCacheFile | ConvertFrom-Json
+        $lastUpdated = [datetime]$data.LastUpdated
+        if ((Get-Date) -lt $lastUpdated.AddHours(1)) {
+            return $data
+        }
+    }
+    return $null
+}
+
+function Save-AirQualityDataToCache ($index,$description) {
+    $aqData = @{
+        LastUpdated = (Get-Date).ToString("o")
+        Index = $index
+        Description = $description
+    }
+    $aqData | ConvertTo-Json | Out-File $AirQualityCacheFile
+}
+
+function Update-AirQualityData {
+    $data = Get-CachedAirQualityData
+    if ($data) {
+        $global:AirQualityIndex = $data.Index
+        $global:AirQualityDescription = $data.Description
+        return
+    }
+
+    $headers = @{
+        "User-Agent" = $UserAgent
+    }
+
+    $lat = 59.89869
+    $lon = 10.81495
+    $radius = 3 # km
+
+    $aqUrl = "https://api.nilu.no/aq/utd/$lat/$lon/${radius}?method=within&components=NO2"
+
+    $noDataIcon = "❓"
+    $noConnectionIcon = "🚫🛜"
+
+    try {
+        $response = Invoke-RestMethod -Uri $aqUrl -Headers $headers -TimeoutSec 5
+
+        # Sort the valid measurements by distance from ($lat,$lon) and take the closest.
+        $measurement = $response |
+        Where-Object { $_.isValid } |
+        Sort-Object -Property { [math]::Pow($_.latitude - $lat,2) + [math]::Pow($_.longitude - $lon,2) } |
+        Select-Object -First 1
+
+        if ($measurement) {
+            # Convert the returned index to an integer explicitly.
+            $aqIndex = [int]$measurement.Index
+        }
+        else {
+            $aqIndex = "N/A"
+        }
+
+        $aqDescriptions = @{
+            1 = "Veldig bra"
+            2 = "Bra"
+            3 = "Middels"
+            4 = "Dårlig"
+            5 = "Ille"
+        }
+
+        if ($aqIndex -is [int] -and $aqDescriptions.ContainsKey($aqIndex)) {
+            $aqDescription = $aqDescriptions[$aqIndex]
+        }
+        else {
+            $aqDescription = $noDataIcon
+        }
+
+        $global:AirQualityIndex = $aqIndex
+        $global:AirQualityDescription = $aqDescription
+
+        Save-AirQualityDataToCache $aqIndex $aqDescription
+    }
+    catch {
+        $global:AirQualityIndex = "N/A"
+        $global:AirQualityDescription = $noConnectionIcon
+        # Do not cache the error state.
     }
 }
 
 Update-WeatherData
+Update-AirQualityData
 
 function Get-GitBranch {
     param(
@@ -146,7 +231,8 @@ function Get-GitBranch {
     if (-not $hasUpstream) {
         if ($repositoryName -ne $currentDirectory) {
             return "[${repositoryName}:${gitBranch}]"
-        } else {
+        }
+        else {
             return "[${gitBranch}]"
         }
     }
@@ -160,7 +246,8 @@ function Get-GitBranch {
     if ($behindCount -gt 0) {
         if ($showNumbers) {
             $statusIndicator += "$behindCount↓"
-        } else {
+        }
+        else {
             $statusIndicator += "↓"
         }
     }
@@ -168,7 +255,8 @@ function Get-GitBranch {
     if ($aheadCount -gt 0) {
         if ($showNumbers) {
             $statusIndicator += "$aheadCount↑"
-        } else {
+        }
+        else {
             $statusIndicator += "↑"
         }
     }
@@ -179,39 +267,45 @@ function Get-GitBranch {
 
     if ($repositoryName -ne $currentDirectory) {
         return "[${repositoryName}:${gitBranch}${statusIndicator}]"
-    } else {
+    }
+    else {
         return "[${gitBranch}${statusIndicator}]"
     }
 }
 
+
 function prompt {
     $promptSegments = @()
 
-    # Existing shell version
+    # Shell version segment.
     $shellVersion = "PS v$($PSVersionTable.PSVersion.ToString())"
     $promptSegments += @{
         Text = $shellVersion
         Color = "Green"
     }
 
-    # Weather information
-    $weatherInfo = ""
+    # Define an adjusted space (a narrow non-breaking space).
     $adjustedSpace = "$([char]0x202F)"
-    if ($IsPS7 -and $global:WeatherIcon) {
-        $weatherInfo = "($($global:WeatherTemperature)°C$adjustedSpace$($global:WeatherIcon)$adjustedSpace)"
+
+    # Build the weather segment.
+    if ($global:WeatherTemperature -and $global:WeatherTemperature -ne "N/A") {
+        $weatherInfo = "$global:WeatherTemperature°C$adjustedSpace$global:WeatherIcon"
     }
-    elseif ($global:WeatherTemperature) {
-        $weatherInfo = "($($global:WeatherTemperature)°C)"
+    else {
+        $weatherInfo = "N/A"
     }
 
-    if ($weatherInfo -ne "") {
-        $promptSegments += @{
-            Text = $weatherInfo
-            Color = "Magenta"
-        }
+    # Append air quality info (description) into the same parentheses if available.
+    if ($global:AirQualityIndex -and $global:AirQualityIndex -ne "N/A") {
+        $weatherInfo += "$adjustedSpace$adjustedSpace–$adjustedSpace $global:AirQualityDescription luftkvalitet"
+    }
+    $combinedInfo = "($weatherInfo)"
+    $promptSegments += @{
+        Text = $combinedInfo
+        Color = "Magenta"
     }
 
-    # Current path
+    # Current path segment.
     $currentPath = (Get-Location).Path
     $relativePath = $currentPath.Replace($env:USERPROFILE,"")
     $pathInfo = "~$relativePath"
@@ -220,7 +314,7 @@ function prompt {
         Color = "Yellow"
     }
 
-    # Git information
+    # Git branch segment.
     $currentDirectory = Split-Path -Leaf -Path (Get-Location)
     $gitInfo = Get-GitBranch -currentDirectory $currentDirectory
     if ($gitInfo -ne "") {
@@ -230,17 +324,17 @@ function prompt {
         }
     }
 
-    # Build and display the prompt with proper spacing
     $firstSegment = $true
     foreach ($segment in $promptSegments) {
-        if ($firstSegment) {
-            $firstSegment = $false
-        } else {
+        if (-not $firstSegment) {
             Write-Host -NoNewline " "
+        }
+        else {
+            $firstSegment = $false
         }
         Write-Host -NoNewline -ForegroundColor $segment.Color $segment.Text
     }
 
-    # Return a newline character to move the prompt to the next line
+    # Return a newline character for the prompt.
     return "`n"
 }
