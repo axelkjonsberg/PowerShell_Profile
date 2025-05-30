@@ -126,93 +126,7 @@ function Update-WeatherData {
     }
 }
 
-function Get-CachedAirQualityData {
-    if (Test-Path $AirQualityCacheFile) {
-        $data = Get-Content $AirQualityCacheFile | ConvertFrom-Json
-        $lastUpdated = [datetime]$data.LastUpdated
-        if ((Get-Date) -lt $lastUpdated.AddHours(1)) {
-            return $data
-        }
-    }
-    return $null
-}
-
-function Save-AirQualityDataToCache ($index,$description) {
-    $aqData = @{
-        LastUpdated = (Get-Date).ToString("o")
-        Index = $index
-        Description = $description
-    }
-    $aqData | ConvertTo-Json | Out-File $AirQualityCacheFile
-}
-
-function Update-AirQualityData {
-    $data = Get-CachedAirQualityData
-    if ($data) {
-        $global:AirQualityIndex = $data.Index
-        $global:AirQualityDescription = $data.Description
-        return
-    }
-
-    $headers = @{
-        "User-Agent" = $UserAgent
-    }
-
-    $lat = 59.89869
-    $lon = 10.81495
-    $radius = 3 # km
-
-    $aqUrl = "https://api.nilu.no/aq/utd/$lat/$lon/${radius}?method=within&components=NO2"
-
-    $noDataIcon = "❓"
-    $noConnectionIcon = "🚫🛜"
-
-    try {
-        $response = Invoke-RestMethod -Uri $aqUrl -Headers $headers -TimeoutSec 5
-
-        # Sort the valid measurements by distance from ($lat,$lon) and take the closest.
-        $measurement = $response |
-        Where-Object { $_.isValid } |
-        Sort-Object -Property { [math]::Pow($_.latitude - $lat,2) + [math]::Pow($_.longitude - $lon,2) } |
-        Select-Object -First 1
-
-        if ($measurement) {
-            # Convert the returned index to an integer explicitly.
-            $aqIndex = [int]$measurement.Index
-        }
-        else {
-            $aqIndex = "N/A"
-        }
-
-        $aqDescriptions = @{
-            1 = "Veldig bra"
-            2 = "Bra"
-            3 = "Middels"
-            4 = "Dårlig"
-            5 = "Ille"
-        }
-
-        if ($aqIndex -is [int] -and $aqDescriptions.ContainsKey($aqIndex)) {
-            $aqDescription = $aqDescriptions[$aqIndex]
-        }
-        else {
-            $aqDescription = $noDataIcon
-        }
-
-        $global:AirQualityIndex = $aqIndex
-        $global:AirQualityDescription = $aqDescription
-
-        Save-AirQualityDataToCache $aqIndex $aqDescription
-    }
-    catch {
-        $global:AirQualityIndex = "N/A"
-        $global:AirQualityDescription = $noConnectionIcon
-        # Do not cache the error state.
-    }
-}
-
 Update-WeatherData
-Update-AirQualityData
 
 function Get-GitBranch {
     param(
@@ -295,13 +209,8 @@ function prompt {
         $weatherInfo = "N/A"
     }
 
-    # Append air quality info (description) into the same parentheses if available.
-    if ($global:AirQualityIndex -and $global:AirQualityIndex -ne "N/A") {
-        $weatherInfo += "$adjustedSpace$adjustedSpace–$adjustedSpace $global:AirQualityDescription luftkvalitet"
-    }
-    $combinedInfo = "($weatherInfo)"
     $promptSegments += @{
-        Text = $combinedInfo
+        Text = $weatherInfo
         Color = "Magenta"
     }
 
