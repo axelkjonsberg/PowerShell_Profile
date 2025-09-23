@@ -55,7 +55,11 @@ function Get-GitRefObjectId {
 
     $looseRefPath = Join-Path $GitDir $RefRelativePath
     if (Test-Path -LiteralPath $looseRefPath -PathType Leaf) {
-        return (Get-Content -LiteralPath $looseRefPath -TotalCount 1 -ErrorAction SilentlyContinue)
+        $val = (Get-Content -LiteralPath $looseRefPath -TotalCount 1 -ErrorAction SilentlyContinue)
+        if ($val -match '^ref:\s+(.+)$') {
+            return Get-GitRefObjectId -GitDir $GitDir -RefRelativePath $Matches[1]
+        }
+        return $val
     }
 
     $packedRefs = Join-Path $GitDir 'packed-refs'
@@ -115,10 +119,11 @@ function Get-GitPromptSegment {
     }
 
     $upstreamRef = (& git -C $repoRoot rev-parse --symbolic-full-name '@{u}' 2>$null)
-    $upstreamOid = $null
-    if ($LASTEXITCODE -eq 0 -and $upstreamRef) {
-        $upstreamOid = Get-GitRefObjectId -GitDir $gitDir -RefRelativePath $upstreamRef
-    }
+    $upstreamRef = $upstreamRef?.Trim()
+    $upstreamOid = if ($LASTEXITCODE -eq 0 -and $upstreamRef) {
+        (& git -C $repoRoot rev-parse '@{u}' 2>$null)?.Trim()
+    } else { $null }
+
     $packedStamp = (Get-Item -LiteralPath (Join-Path $gitDir 'packed-refs') -ErrorAction SilentlyContinue)?.LastWriteTimeUtc?.ToFileTimeUtc()
 
     $cache = $script:RepositoryStatusCache[$repoRoot]
