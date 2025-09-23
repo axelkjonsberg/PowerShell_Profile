@@ -23,7 +23,8 @@ function Get-GitRepositoryPaths {
                 $target = $Matches[1]
                 $resolved = if ([IO.Path]::IsPathRooted($target)) {
                     Resolve-Path -LiteralPath $target -ErrorAction SilentlyContinue
-                } else {
+                }
+                else {
                     Resolve-Path -LiteralPath (Join-Path $directory.FullName $target) -ErrorAction SilentlyContinue
                 }
                 if ($resolved) {
@@ -61,7 +62,7 @@ function Get-GitRefObjectId {
     if (Test-Path -LiteralPath $packedRefs -PathType Leaf) {
         foreach ($line in (Get-Content -LiteralPath $packedRefs -ErrorAction SilentlyContinue)) {
             if ($line -match '^[0-9a-fA-F]{40}\s+' + [regex]::Escape($RefRelativePath) + '$') {
-                return ($line -split '\s+',2)[0]
+                return ($line -split '\s+', 2)[0]
             }
         }
     }
@@ -76,7 +77,7 @@ function Get-GitAheadBehindCounts {
         return [pscustomobject]@{ Behind = 0; Ahead = 0; HasUpstream = $false }
     }
 
-    $parts = ($counts -replace '\s+$','') -split '\s+'
+    $parts = ($counts -replace '\s+$', '') -split '\s+'
     if ($parts.Count -lt 2) {
         return [pscustomobject]@{ Behind = 0; Ahead = 0; HasUpstream = $true }
     }
@@ -104,43 +105,49 @@ function Get-GitPromptSegment {
 
     # Create a cache signature that changes when HEAD moves or after a fetch
     $fetchFile = Join-Path $gitDir 'FETCH_HEAD'
-    $fetchStamp = (Get-Item -LiteralPath $fetchFile -ErrorAction SilentlyContinue)?.LastWriteTimeUtc.ToFileTimeUtc()
+    $fetchStamp = (Get-Item -LiteralPath $fetchFile -ErrorAction SilentlyContinue)?.LastWriteTimeUtc?.ToFileTimeUtc()
 
     $headObjectId = if ($branch -ne 'DETACHED') {
         Get-GitRefObjectId -GitDir $gitDir -RefRelativePath ("refs/heads/" + $branch)
-    } else {
+    }
+    else {
         Get-GitRefObjectId -GitDir $gitDir -RefRelativePath 'HEAD'
     }
+
+    $upstreamRef = (& git -C $repoRoot rev-parse --symbolic-full-name '@{u}' 2>$null)
+    $upstreamOid = $null
+    if ($LASTEXITCODE -eq 0 -and $upstreamRef) {
+        $upstreamOid = Get-GitRefObjectId -GitDir $gitDir -RefRelativePath $upstreamRef
+    }
+    $packedStamp = (Get-Item -LiteralPath (Join-Path $gitDir 'packed-refs') -ErrorAction SilentlyContinue)?.LastWriteTimeUtc?.ToFileTimeUtc()
 
     $cache = $script:RepositoryStatusCache[$repoRoot]
     $signatureChanged = -not $cache -or
     $cache.HeadObjectId -ne $headObjectId -or
     $cache.FetchStamp -ne $fetchStamp -or
-    $cache.BranchName -ne $branch
+    $cache.BranchName -ne $branch -or
+    $cache.UpstreamRef -ne $upstreamRef -or
+    $cache.UpstreamOid -ne $upstreamOid -or
+    $cache.PackedStamp -ne $packedStamp
 
     if ($signatureChanged) {
-        $upstream = (& git -C $repoRoot rev-parse --abbrev-ref '@{u}' 2>$null)
-        if ($LASTEXITCODE -eq 0 -and $upstream) {
+        $ab = [pscustomobject]@{ Ahead = 0; Behind = 0 }
+        $hasUpstream = $false
+        if ($upstreamRef) {
             $ab = Get-GitAheadBehindCounts -RepoRoot $repoRoot
-            $cache = @{
-                RepoName = $repoName
-                BranchName = $branch
-                HeadObjectId = $headObjectId
-                FetchStamp = $fetchStamp
-                Ahead = $ab.Ahead
-                Behind = $ab.Behind
-                HasUpstream = $true
-            }
-        } else {
-            $cache = @{
-                RepoName = $repoName
-                BranchName = $branch
-                HeadObjectId = $headObjectId
-                FetchStamp = $fetchStamp
-                Ahead = 0
-                Behind = 0
-                HasUpstream = $false
-            }
+            $hasUpstream = $true
+        }
+        $cache = @{
+            RepoName     = $repoName
+            BranchName   = $branch
+            HeadObjectId = $headObjectId
+            FetchStamp   = $fetchStamp
+            UpstreamRef  = $upstreamRef
+            UpstreamOid  = $upstreamOid
+            PackedStamp  = $packedStamp
+            Ahead        = $ab.Ahead
+            Behind       = $ab.Behind
+            HasUpstream  = $hasUpstream
         }
         $script:RepositoryStatusCache[$repoRoot] = $cache
     }
@@ -153,9 +160,10 @@ function Get-GitPromptSegment {
 
     if ($repoName -ne $CurrentDirectoryLeaf) {
         if ($cache.HasUpstream) { "[${repoName}:${branch}${status}]" } else { "[${repoName}:${branch}]" }
-    } else {
+    }
+    else {
         if ($cache.HasUpstream) { "[${branch}${status}]" } else { "[${branch}]" }
     }
 }
 
-Export-ModuleMember -Function Get-GitPromptSegment,Get-GitAheadBehindCounts
+Export-ModuleMember -Function Get-GitPromptSegment, Get-GitAheadBehindCounts
