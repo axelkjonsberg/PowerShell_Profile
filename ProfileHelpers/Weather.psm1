@@ -66,21 +66,24 @@ function Read-WeatherCache {
         Write-WeatherLog "Cache not found: $($script:WeatherCacheFilePath)"
         return $null
     }
-
     try {
-        $cfg = Get-WeatherConfiguration
-        $ttl = if ($cfg) { [int]$cfg.CacheTtlMinutes } else { $script:DefaultCacheTtlMinutes }
+        $configuration = Get-WeatherConfiguration
+        $cacheTtlMinutes = if ($configuration) { [int]$configuration.CacheTtlMinutes } else { $script:DefaultCacheTtlMinutes }
 
-        # Read the whole file as a single string, then parse JSON
-        # (Get-Content -Raw + ConvertFrom-Json is the recommended pattern).
         $data = Get-Content -LiteralPath $script:WeatherCacheFilePath -Raw | ConvertFrom-Json
 
         if (-not $data.LastUpdated) { Write-WeatherLog "Cache missing LastUpdated."; return $null }
 
-        $freshUntil = ([datetime]$data.LastUpdated).AddMinutes($ttl)
+        # Force refresh if this is a pre-change cache without the new window tag
+        if (-not $data.WindowMinutes -or ([int]$data.WindowMinutes -ne 90)) {
+            Write-WeatherLog "Cache schema/window mismatch. Forcing refresh. WindowMinutes=$($data.WindowMinutes)"
+            return $null
+        }
+
+        $freshUntil = ([datetime]$data.LastUpdated).AddMinutes($cacheTtlMinutes)
         $isFresh = (Get-Date) -lt $freshUntil
 
-        Write-WeatherLog ("Cache found. Fresh={0} Temp={1} Icon={2}" -f $isFresh, $data.Temperature, $data.Icon)
+        Write-WeatherLog ("Cache found. Fresh={0} Temp={1} Icon={2} Window={3}m" -f $isFresh, $data.Temperature, $data.Icon, $data.WindowMinutes)
         if ($isFresh) { return $data }
     }
     catch {
@@ -92,7 +95,10 @@ function Read-WeatherCache {
 function Write-WeatherCache {
     param(
         [Parameter(Mandatory)] $Temperature,
-        [Parameter(Mandatory)] $Icon
+        [Parameter(Mandatory)] $Icon,
+        [int]$WindowMinutes = 0,
+        [string]$IconKey,
+        [string]$IconSourceTime
     )
 
     $target = $script:WeatherCacheFilePath
@@ -101,29 +107,34 @@ function Write-WeatherCache {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
     }
 
-    $json = @{ LastUpdated = (Get-Date).ToString('o'); Temperature = $Temperature; Icon = $Icon } |
-    ConvertTo-Json -Compress
+    $payload = @{
+        LastUpdated    = (Get-Date).ToString('o')
+        Temperature    = $Temperature
+        Icon           = $Icon
+        WindowMinutes  = $WindowMinutes
+        IconKey        = $IconKey
+        IconSourceTime = $IconSourceTime
+    }
 
+    $json = $payload | ConvertTo-Json -Compress
     $tmp = Join-Path $dir ('.weatherCache.json.tmp.' + [guid]::NewGuid().ToString('N'))
 
     try {
         [System.IO.File]::WriteAllText($tmp, $json)
 
         if ([System.IO.File].GetMethod('Move', [Type[]]@([string], [string], [bool]))) {
-            [System.IO.File]::Move($tmp, $target, $true)   # overwrite: true
+            [System.IO.File]::Move($tmp, $target, $true)
         }
         else {
-            # Fallback: Replace with a real backup path to avoid $null -> "" coercion
             if (Test-Path -LiteralPath $target) {
                 $bk = "$target.bak"
-                [System.IO.File]::Replace($tmp, $target, $bk)   # preserves ACLs/attrs
+                [System.IO.File]::Replace($tmp, $target, $bk)
                 Remove-Item -LiteralPath $bk -Force -ErrorAction SilentlyContinue
             }
             else {
                 [System.IO.File]::Move($tmp, $target)
             }
         }
-
         Write-WeatherLog "Cache updated atomically at $target"
     }
     catch {
@@ -131,7 +142,6 @@ function Write-WeatherCache {
         Write-WeatherLog "Cache write error: $($_.Exception.Message)"
     }
 }
-
 
 function Get-WeatherNow {
     param([Parameter(Mandatory)] $Config)
@@ -147,20 +157,85 @@ function Get-WeatherNow {
         "lightrainshowers" = "🌦️"; "lightrainshowersandthunder" = "⛈️"; "lightsleet" = "🌨️"; "lightsleetandthunder" = "⛈️";
         "lightsleetshowers" = "🌨️"; "lightsnow" = "🌨️"; "lightsnowandthunder" = "⛈️"; "lightsnowshowers" = "🌨️";
         "partlycloudy" = "⛅"; "rain" = "🌧️"; "rainandthunder" = "⛈️"; "rainshowers" = "🌧️"; "rainshowersandthunder" = "⛈️";
-        "sleet" = "🌨️"; "sleetandthunder" = "⛈️"; "sleetshowers" = "🌨️"; "sleetshowersandthunder" = "🌨️";
+        "sleet" = "🌨️"; "sleetandthunder" = "⛈️"; "sleetshowers" = "🌨️"; "sleetshowersandthunder" = "⛈️";
         "snow" = "🌨️"; "snowandthunder" = "⛈️"; "snowshowers" = "🌨️"; "snowshowersandthunder" = "⛈️"; "thunderstorm" = "🌩️"
     }
 
     try {
-        $resp = Invoke-RestMethod -Uri $apiUrl -UserAgent $Config.UserAgent -TimeoutSec 8
-        $fc = $resp.properties.timeseries |
-        Where-Object { [datetime]$_.time -ge (Get-Date).AddHours(1) } |
-        Select-Object -First 1
-        if (-not $fc) { Write-WeatherLog "No forecast slice found."; return $null }
+        $response = Invoke-RestMethod -Uri $apiUrl -UserAgent $Config.UserAgent -TimeoutSec 8
+        $nowLocal = Get-Date
+        $windowEnd = $nowLocal.AddMinutes(90)
 
-        $t = $fc.data.instant.details.air_temperature
-        $sc = $fc.data.next_1_hours.summary.symbol_code -replace '_day$|_night$', ''
-        [pscustomobject]@{ Temperature = $t; Icon = $icons[$sc]; IconKey = $sc }
+        $timeSeries = $response.properties.timeseries
+        $slicesInWindow = $timeSeries | Where-Object {
+            $sliceTime = [datetime]$_.time
+            $sliceTime -gt $nowLocal -and $sliceTime -le $windowEnd
+        }
+
+        if (-not $slicesInWindow) {
+            Write-WeatherLog "No slices in 90m window. Falling back to first future slice."
+            $fallbackSlice = $timeSeries | Where-Object { [datetime]$_.time -ge $nowLocal } | Select-Object -First 1
+            if (-not $fallbackSlice) { Write-WeatherLog "No forecast slice found."; return $null }
+            $rawCode = $fallbackSlice.data.next_1_hours.summary.symbol_code
+            if (-not $rawCode) { Write-WeatherLog "No symbol_code on fallback slice."; return $null }
+            $normalizedCode = $rawCode -replace '_day$|_night$|_polartwilight$', ''
+            $temperature = $fallbackSlice.data.instant.details.air_temperature
+            return [pscustomobject]@{
+                Temperature  = $temperature
+                Icon         = $icons[$normalizedCode]
+                IconKey      = $normalizedCode
+                IconFromTime = ([datetime]$fallbackSlice.time).ToString('o')
+            }
+        }
+
+        function Get-SymbolSeverity ([string]$code) {
+            # ranking: thunder > heavy precip > frozen precip > rain/showers > fog > clouds > fair > clear
+            $severity = 0
+            if ($code -match 'thunderstorm|andthunder') { $severity += 100 }
+            if ($code -match '^heavy' -or $code -match 'heavyrain|heavysnow|heavysleet') { $severity += 40 }
+            if ($code -match 'sleet|snow') { $severity += 25 }
+            if ($code -match 'rain|showers') { $severity += 20 }
+            if ($code -match '^light') { $severity -= 5 }
+            if ($code -eq 'fog') { $severity = [math]::Max($severity, 10) }
+            if ($code -eq 'cloudy') { $severity = [math]::Max($severity, 5) }
+            if ($code -eq 'partlycloudy') { $severity = [math]::Max($severity, 2) }
+            if ($code -eq 'fair') { $severity = [math]::Max($severity, 1) }
+            if ($code -eq 'clearsky') { $severity = [math]::Max($severity, 0) }
+            return $severity
+        }
+
+        $worstSlice = $null
+        $worstCode = $null
+        $worstSeverity = [int]::MinValue
+
+        foreach ($slice in $slicesInWindow) {
+            $period = $slice.data.next_1_hours
+            if (-not $period) { continue }
+            $rawCode = $period.summary.symbol_code
+            if (-not $rawCode) { continue }
+            $normalizedCode = $rawCode -replace '_day$|_night$|_polartwilight$', ''
+            $severity = Get-SymbolSeverity $normalizedCode
+            if ($severity -gt $worstSeverity) {
+                $worstSeverity = $severity
+                $worstSlice = $slice
+                $worstCode = $normalizedCode
+            }
+        }
+
+        if (-not $worstSlice) { Write-WeatherLog "No symbol_code within window."; return $null }
+
+        # Temperature from the nearest future instant
+        $tempSlice = $timeSeries | Where-Object { [datetime]$_.time -ge $nowLocal } | Select-Object -First 1
+        $temperature = $tempSlice.data.instant.details.air_temperature
+
+        Write-WeatherLog ("Worst-in-90m: code={0} sev={1} at={2}" -f $worstCode, $worstSeverity, ([datetime]$worstSlice.time).ToString("yyyy-MM-dd HH:mm"))
+
+        return [pscustomobject]@{
+            Temperature  = $temperature
+            Icon         = ($icons[$worstCode] | ForEach-Object { if ($_) { $_ } else { '❓' } })
+            IconKey      = $worstCode
+            IconFromTime = ([datetime]$worstSlice.time).ToString('o')
+        }
     }
     catch {
         Write-WeatherLog ("Sync fetch error: " + $_.Exception.Message)
@@ -176,19 +251,19 @@ function Request-WeatherForPrompt {
         return
     }
 
-    $cfg = Get-WeatherConfiguration
-    if (-not $cfg) {
+    $config = Get-WeatherConfiguration
+    if (-not $config) {
         $global:WeatherTemperature = 'N/A'
         $global:WeatherIcon = if ($PSVersionTable.PSVersion.Major -ge 7) { '…' } else { '' }
         return
     }
 
-    $result = Get-WeatherNow -Config $cfg
+    $result = Get-WeatherNow -Config $config
     if ($result) {
-        Write-WeatherCache -Temperature $result.Temperature -Icon $result.Icon
+        Write-WeatherCache -Temperature $result.Temperature -Icon $result.Icon -WindowMinutes 90 -IconKey $result.IconKey -IconSourceTime $result.IconFromTime
         $global:WeatherTemperature = $result.Temperature
         $global:WeatherIcon = $result.Icon
-        Write-WeatherLog "Cache refreshed synchronously: $($result.Temperature)°C ($($result.IconKey))"
+        Write-WeatherLog "Cache refreshed synchronously (worst-in-90m): $($result.Temperature)°C [$($result.IconKey)]"
     }
     else {
         $global:WeatherTemperature = 'N/A'
