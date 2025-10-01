@@ -1,12 +1,14 @@
 ﻿Set-Variable -Name DefaultLatitude -Option Constant -Scope Script -Value 59.91278
 Set-Variable -Name DefaultLongitude -Option Constant -Scope Script -Value 10.73639
 Set-Variable -Name DefaultCacheTtlMinutes -Option Constant -Scope Script -Value 60
+Set-Variable -Name DefaultTrendSignificanceCelsius -Option Constant -Scope Script -Value 1.0
 Set-Variable -Name WeatherCacheFilePath -Option Constant -Scope Script -Value (Join-Path $HOME '.weatherCache.json')
 Set-Variable -Name WeatherLogFilePath -Option Constant -Scope Script -Value (Join-Path $HOME '.weather.log')
 Set-Variable -Name WeatherConfigPath -Option Constant -Scope Script -Value (Join-Path $HOME '.weatherConfig.json')
 
 $global:WeatherTemperature = $null
 $global:WeatherIcon = $null
+$global:WeatherTrendArrow = $null
 
 # Module settings
 $script:WriteDebugLogToFile = $true
@@ -52,8 +54,28 @@ function Get-WeatherConfiguration {
         $ttl = 0; [void][int]::TryParse([string]$data.CacheTtlMinutes, [ref]$ttl)
         if ($ttl -lt 1) { $ttl = $script:DefaultCacheTtlMinutes }
 
-        Write-WeatherLog "Config OK; UA length=$($userAgent.Length) TTL=$ttl Lat=$lat Lon=$lon"
-        [pscustomobject]@{ UserAgent = $userAgent; Latitude = $lat; Longitude = $lon; CacheTtlMinutes = $ttl }
+        $numberStyle  = [System.Globalization.NumberStyles]::Float
+        $cultureInfo  = [System.Globalization.CultureInfo]::InvariantCulture
+        $trendThresholdCelsius = $script:DefaultTrendSignificanceCelsius
+
+        $parsedTrendThresholdCelsius = 0.0
+        if ([double]::TryParse([string]$data.TrendSignificanceCelsius, $numberStyle, $cultureInfo, [ref]$parsedTrendThresholdCelsius)) {
+            $trendThresholdCelsius = $parsedTrendThresholdCelsius
+        }
+
+        if ($trendThresholdCelsius -le 0) {
+            $trendThresholdCelsius = $script:DefaultTrendSignificanceCelsius
+        }
+
+
+        Write-WeatherLog "Config OK; UA length=$($userAgent.Length) TTL=$ttl Lat=$lat Lon=$lon TrendSignificanceC=$trendThresholdCelsius"
+        [pscustomobject]@{
+            UserAgent                = $userAgent
+            Latitude                 = $lat
+            Longitude                = $lon
+            CacheTtlMinutes          = $ttl
+            TrendSignificanceCelsius = $trendThresholdCelsius
+        }
     }
     catch {
         Write-WeatherLog "Config parse error: $($_.Exception.Message)"
@@ -83,7 +105,7 @@ function Read-WeatherCache {
         $freshUntil = ([datetime]$data.LastUpdated).AddMinutes($cacheTtlMinutes)
         $isFresh = (Get-Date) -lt $freshUntil
 
-        Write-WeatherLog ("Cache found. Fresh={0} Temp={1} Icon={2} Window={3}m" -f $isFresh, $data.Temperature, $data.Icon, $data.WindowMinutes)
+        Write-WeatherLog ("Cache found. Fresh={0} Temp={1} Icon={2} Trend='{3}' Window={4}m" -f $isFresh, $data.Temperature, $data.Icon, ($data.TrendArrow -as [string]), $data.WindowMinutes)
         if ($isFresh) { return $data }
     }
     catch {
@@ -98,7 +120,8 @@ function Write-WeatherCache {
         [Parameter(Mandatory)] $Icon,
         [int]$WindowMinutes = 0,
         [string]$IconKey,
-        [string]$IconSourceTime
+        [string]$IconSourceTime,
+        [string]$TrendArrow
     )
 
     $target = $script:WeatherCacheFilePath
@@ -114,6 +137,7 @@ function Write-WeatherCache {
         WindowMinutes  = $WindowMinutes
         IconKey        = $IconKey
         IconSourceTime = $IconSourceTime
+        TrendArrow     = $TrendArrow
     }
 
     $json = $payload | ConvertTo-Json -Compress
@@ -136,6 +160,7 @@ function Write-WeatherCache {
             }
         }
         Write-WeatherLog "Cache updated atomically at $target"
+        Write-WeatherLog ("Cache payload: Temp={0} IconKey={1} Trend='{2}' Window={3}m" -f $Temperature, $IconKey, ($TrendArrow -as [string]), $WindowMinutes)
     }
     catch {
         try { if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force } } catch {}
@@ -172,6 +197,29 @@ function Get-WeatherNow {
             $sliceTime -gt $nowLocal -and $sliceTime -le $windowEnd
         }
 
+        $trendThreshold = if ($Config.PSObject.Properties.Name -contains 'TrendSignificanceCelsius') {
+            [double]$Config.TrendSignificanceCelsius
+        } else {
+            [double]$script:DefaultTrendSignificanceCelsius
+        }       
+
+        $firstFutureInstant = $timeSeries | Where-Object { [datetime]$_.time -ge $nowLocal } | Select-Object -First 1
+        $lastInstantInWindow = $timeSeries | Where-Object {
+            $t = [datetime]$_.time
+            $t -ge $nowLocal -and $t -le $windowEnd
+        } | Select-Object -Last 1
+
+        $temperatureTrendArrow = ''
+        if ($firstFutureInstant -and $lastInstantInWindow) {
+            $tStart = [double]$firstFutureInstant.data.instant.details.air_temperature
+            $tEnd   = [double]$lastInstantInWindow.data.instant.details.air_temperature
+            $delta  = $tEnd - $tStart
+            if ([math]::Abs($delta) -ge $trendThreshold) {
+                $temperatureTrendArrow = if ($delta -gt 0) { '↑' } else { '↓' }
+            }
+            Write-WeatherLog ("Temp trend start={0} end={1} Δ={2:0.##}°C threshold={3}°C arrow='{4}'" -f $tStart, $tEnd, $delta, $trendThreshold, $temperatureTrendArrow)
+        }
+
         if (-not $slicesInWindow) {
             Write-WeatherLog "No slices in 90m window. Falling back to first future slice."
             $fallbackSlice = $timeSeries | Where-Object { [datetime]$_.time -ge $nowLocal } | Select-Object -First 1
@@ -180,11 +228,13 @@ function Get-WeatherNow {
             if (-not $rawCode) { Write-WeatherLog "No symbol_code on fallback slice."; return $null }
             $normalizedCode = $rawCode -replace '_day$|_night$|_polartwilight$', ''
             $temperature = $fallbackSlice.data.instant.details.air_temperature
+
             return [pscustomobject]@{
                 Temperature  = $temperature
                 Icon         = $icons[$normalizedCode]
                 IconKey      = $normalizedCode
                 IconFromTime = ([datetime]$fallbackSlice.time).ToString('o')
+                TrendArrow   = ''
             }
         }
 
@@ -228,13 +278,14 @@ function Get-WeatherNow {
         $tempSlice = $timeSeries | Where-Object { [datetime]$_.time -ge $nowLocal } | Select-Object -First 1
         $temperature = $tempSlice.data.instant.details.air_temperature
 
-        Write-WeatherLog ("Worst-in-90m: code={0} sev={1} at={2}" -f $worstCode, $worstSeverity, ([datetime]$worstSlice.time).ToString("yyyy-MM-dd HH:mm"))
+        Write-WeatherLog ("Worst-in-90m: code={0} sev={1} at={2} arrow='{3}'" -f $worstCode, $worstSeverity, ([datetime]$worstSlice.time).ToString("yyyy-MM-dd HH:mm"), $temperatureTrendArrow)
 
         return [pscustomobject]@{
             Temperature  = $temperature
             Icon         = ($icons[$worstCode] | ForEach-Object { if ($_) { $_ } else { '❓' } })
             IconKey      = $worstCode
             IconFromTime = ([datetime]$worstSlice.time).ToString('o')
+            TrendArrow   = $temperatureTrendArrow
         }
     }
     catch {
@@ -247,7 +298,8 @@ function Request-WeatherForPrompt {
     $cached = Read-WeatherCache
     if ($cached) {
         $global:WeatherTemperature = $cached.Temperature
-        $global:WeatherIcon = $cached.Icon
+        $global:WeatherIcon        = $cached.Icon
+        $global:WeatherTrendArrow  = ($cached.TrendArrow | ForEach-Object { if ($_){$_} else {''} })
         return
     }
 
@@ -260,14 +312,15 @@ function Request-WeatherForPrompt {
 
     $result = Get-WeatherNow -Config $config
     if ($result) {
-        Write-WeatherCache -Temperature $result.Temperature -Icon $result.Icon -WindowMinutes 90 -IconKey $result.IconKey -IconSourceTime $result.IconFromTime
+        Write-WeatherCache -Temperature $result.Temperature -Icon $result.Icon -WindowMinutes 90 -IconKey $result.IconKey -IconSourceTime $result.IconFromTime -TrendArrow $result.TrendArrow
         $global:WeatherTemperature = $result.Temperature
-        $global:WeatherIcon = $result.Icon
-        Write-WeatherLog "Cache refreshed synchronously (worst-in-90m): $($result.Temperature)°C [$($result.IconKey)]"
-    }
-    else {
+        $global:WeatherIcon        = $result.Icon
+        $global:WeatherTrendArrow  = $result.TrendArrow
+        Write-WeatherLog "Cache refreshed synchronously (worst-in-90m): $($result.Temperature)°C [$($result.IconKey)] Trend=$($result.TrendArrow)"
+    } else {
         $global:WeatherTemperature = 'N/A'
-        $global:WeatherIcon = if ($PSVersionTable.PSVersion.Major -ge 7) { '🚫🛜' } else { '' }
+        $global:WeatherIcon        = if ($PSVersionTable.PSVersion.Major -ge 7) { '🚫🛜' } else { '' }
+        $global:WeatherTrendArrow  = ''
     }
 }
 

@@ -41,7 +41,7 @@ function Get-CustomPromptString {
     else { $null }
 
     $displayWeather = if ($weatherTemperatureText) {
-        "$weatherTemperatureText°C$script:NarrowNoBreakSpace$($global:WeatherIcon)"
+        "$weatherTemperatureText°C$($global:WeatherTrendArrow)$script:NarrowNoBreakSpace$($global:WeatherIcon)"
     }
     else { 'N/A' }
     $segmentWeather = "$($colorStyles.Weather)$displayWeather$($colorStyles.Reset)"
