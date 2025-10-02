@@ -11,8 +11,8 @@ $global:WeatherIcon = $null
 $global:WeatherTrendArrow = $null
 
 # Module settings
-$script:WriteDebugLogToFile = $true
-$script:EchoDebugLogToHost = $true
+$script:WriteDebugLogToFile = $false
+$script:EchoDebugLogToHost = $false
 
 function Write-WeatherLog {
     param([Parameter(Mandatory)] [string]$Message)
@@ -54,8 +54,8 @@ function Get-WeatherConfiguration {
         $ttl = 0; [void][int]::TryParse([string]$data.CacheTtlMinutes, [ref]$ttl)
         if ($ttl -lt 1) { $ttl = $script:DefaultCacheTtlMinutes }
 
-        $numberStyle  = [System.Globalization.NumberStyles]::Float
-        $cultureInfo  = [System.Globalization.CultureInfo]::InvariantCulture
+        $numberStyle = [System.Globalization.NumberStyles]::Float
+        $cultureInfo = [System.Globalization.CultureInfo]::InvariantCulture
         $trendThresholdCelsius = $script:DefaultTrendSignificanceCelsius
 
         $parsedTrendThresholdCelsius = 0.0
@@ -199,7 +199,8 @@ function Get-WeatherNow {
 
         $trendThreshold = if ($Config.PSObject.Properties.Name -contains 'TrendSignificanceCelsius') {
             [double]$Config.TrendSignificanceCelsius
-        } else {
+        }
+        else {
             [double]$script:DefaultTrendSignificanceCelsius
         }       
 
@@ -212,8 +213,8 @@ function Get-WeatherNow {
         $temperatureTrendArrow = ''
         if ($firstFutureInstant -and $lastInstantInWindow) {
             $tStart = [double]$firstFutureInstant.data.instant.details.air_temperature
-            $tEnd   = [double]$lastInstantInWindow.data.instant.details.air_temperature
-            $delta  = $tEnd - $tStart
+            $tEnd = [double]$lastInstantInWindow.data.instant.details.air_temperature
+            $delta = $tEnd - $tStart
             if ([math]::Abs($delta) -ge $trendThreshold) {
                 $temperatureTrendArrow = if ($delta -gt 0) { '↑' } else { '↓' }
             }
@@ -298,8 +299,8 @@ function Request-WeatherForPrompt {
     $cached = Read-WeatherCache
     if ($cached) {
         $global:WeatherTemperature = $cached.Temperature
-        $global:WeatherIcon        = $cached.Icon
-        $global:WeatherTrendArrow  = ($cached.TrendArrow | ForEach-Object { if ($_){$_} else {''} })
+        $global:WeatherIcon = $cached.Icon
+        $global:WeatherTrendArrow = ($cached.TrendArrow | ForEach-Object { if ($_) { $_ } else { '' } })
         return
     }
 
@@ -314,13 +315,14 @@ function Request-WeatherForPrompt {
     if ($result) {
         Write-WeatherCache -Temperature $result.Temperature -Icon $result.Icon -WindowMinutes 90 -IconKey $result.IconKey -IconSourceTime $result.IconFromTime -TrendArrow $result.TrendArrow
         $global:WeatherTemperature = $result.Temperature
-        $global:WeatherIcon        = $result.Icon
-        $global:WeatherTrendArrow  = $result.TrendArrow
+        $global:WeatherIcon = $result.Icon
+        $global:WeatherTrendArrow = $result.TrendArrow
         Write-WeatherLog "Cache refreshed synchronously (worst-in-90m): $($result.Temperature)°C [$($result.IconKey)] Trend=$($result.TrendArrow)"
-    } else {
+    }
+    else {
         $global:WeatherTemperature = 'N/A'
-        $global:WeatherIcon        = if ($PSVersionTable.PSVersion.Major -ge 7) { '🚫🛜' } else { '' }
-        $global:WeatherTrendArrow  = ''
+        $global:WeatherIcon = if ($PSVersionTable.PSVersion.Major -ge 7) { '🚫🛜' } else { '' }
+        $global:WeatherTrendArrow = ''
     }
 }
 
